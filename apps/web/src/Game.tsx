@@ -4,7 +4,9 @@ import {
   legalActions, woundCount, getScenario,
 } from '@deadbolt/engine';
 import type { Action, GameEvent, GameState, ZombieType, ZoneId } from '@deadbolt/engine';
-import { BoardView, SURVIVOR_COLORS, type Hints } from './Board';
+import { BoardView, SURVIVOR_COLORS, type Hints, type HoverTarget } from './Board';
+import { TipBody } from './Tooltip';
+import { weaponLine } from './info';
 import { InventoryModal, SearchModal, CardChip } from './Modals';
 import { describeAll, type LogLine } from './log';
 import { save, type Saved } from './persist';
@@ -24,6 +26,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
   const [toast, setToast] = useState('');
   const [inv, setInv] = useState(false);
   const [bigLog, setBigLog] = useState(false);
+  const [hover, setHover] = useState<{ t: HoverTarget; x: number; y: number } | null>(null);
   const [prefer, setPrefer] = useState<ZombieType | ''>('');
   const host = useRef<HTMLDivElement>(null);
   const board = useRef<BoardView | null>(null);
@@ -87,6 +90,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
     let cancelled = false;
     let view: BoardView | null = null;
     BoardView.create(host.current!, {
+      onHover: (target, x, y) => setHover(target ? { t: target, x, y } : null),
       onZone: (zone: ZoneId) => {
         const { legal, mode, dispatch, prefer } = latest.current;
         if (mode) {
@@ -143,7 +147,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
         const only = targets.length === 1 ? targets[0]! : null;
         if (only && only.target === actor.zone) { dispatch(withPrefer(only, prefer)); return; }
         setMode({ slot });
-      }}>Attack: {name}</button>
+      }} title={weaponLine(actor, actor.slots[slot === 'both' ? 0 : slot])}>Attack: {name}<small className="btnsub">{weaponLine(actor, actor.slots[slot === 'both' ? 0 : slot]).replace(/^1 die, /, '').replace(/^(\d+) dice, /, '$1 dice, ')}{slot === 'both' ? ' ×2' : ''}</small></button>
     );
   });
 
@@ -172,6 +176,11 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
               <p>{state.status === 'won' ? `Survivors escaped in round ${state.round}.` : `Fallen in round ${state.round}.`}</p>
               <button className="primary" onClick={onExit}>Back to lobby</button>
             </div>
+          </div>
+        )}
+        {hover && !bigLog && (
+          <div className="tip" style={{ left: Math.min(hover.x + 16, window.innerWidth - 340), top: Math.min(hover.y + 16, window.innerHeight - 320) }}>
+            <TipBody state={state} t={hover.t} players={g.players} />
           </div>
         )}
         {bigLog && (

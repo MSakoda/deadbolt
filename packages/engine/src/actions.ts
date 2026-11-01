@@ -209,7 +209,7 @@ function doAttack(c: Ctx, actor: Survivor, a: Extract<Action, { type: 'attack' }
     rerollMisses(c, rolls, acc, rolls.length, 'plenty_of_ammo');
   }
   const hits = rolls.filter((r) => r >= acc).length;
-  emit(c, 'attack', { survivor: actor.id, weapon: def.id, dual: cards.length === 2, target: a.target, initialRolls: initial, rolls, hits });
+  emit(c, 'attack', { survivor: actor.id, weapon: def.id, dual: cards.length === 2, target: a.target, initialRolls: initial, rolls, hits, needs: acc, damage: (def.damage ?? 1) + (def.kind === 'ranged' && has(actor, 'clean_kill') ? 1 : 0) });
 
   // Noise: one token per action.
   let noisy = !!def.noisy;

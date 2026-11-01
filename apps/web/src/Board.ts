@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Rectangle, Text } from 'pixi.js';
+import { Application, Circle, Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { CHARACTER_BY_ID, getScenario } from '@deadbolt/engine';
 import type { GameEvent, GameState, ZombieType, ZoneId } from '@deadbolt/engine';
 
@@ -12,7 +12,9 @@ export interface Hints {
   /** Door edge ids the active survivor can open right now. */
   doors: Record<string, boolean>;
 }
+export interface HoverTarget { kind: 'survivor' | 'zombie' | 'door' | 'marker' | 'truck'; id: string }
 export interface BoardCallbacks {
+  onHover(t: HoverTarget | null, x: number, y: number): void;
   onZone(id: ZoneId): void;
   onDoor(edgeId: string, a: ZoneId, b: ZoneId): void;
 }
@@ -54,6 +56,8 @@ export class BoardView {
   private activeId: string | null = null;
   private time = 0;
   private scenarioId = '';
+  private cb!: BoardCallbacks;
+  private lastState!: GameState;
   private destroyed = false;
   private worldW = 0;
   private worldH = 0;
@@ -65,6 +69,8 @@ export class BoardView {
   }
 
   private async init(host: HTMLElement, cb: BoardCallbacks, state: GameState): Promise<void> {
+    this.cb = cb;
+    this.lastState = state;
     await this.app.init({
       background: 0x12151b, antialias: true, resizeTo: host,
       resolution: window.devicePixelRatio || 1, autoDensity: true,
@@ -94,6 +100,8 @@ export class BoardView {
       this.zoneText.set(z.id, t);
       const m = new Container();
       m.position.set(zx(z.col) + CELL_W - 22, zy(z.row) + 22);
+      m.hitArea = new Rectangle(-14, -14, 28, 28);
+      this.hoverable(m, () => (this.lastState.objectives[z.id] ? { kind: 'marker', id: z.id } : null));
       this.labelLayer.addChild(m);
       this.markers.set(z.id, m);
     }
@@ -109,6 +117,8 @@ export class BoardView {
       hit.eventMode = 'static';
       hit.cursor = 'pointer';
       hit.on('pointertap', () => cb.onDoor(e.id, e.a, e.b));
+      this.hoverable(hit, () => ({ kind: 'door', id: e.id }));
+      hit.cursor = 'pointer';
       this.doorLayer.addChild(hit);
       this.doorHit.set(e.id, hit);
     }
@@ -118,6 +128,15 @@ export class BoardView {
     new ResizeObserver(() => this.fit()).observe(host);
     this.app.ticker.add((tk) => this.tick(tk.deltaTime));
     this.update(state, { zones: {}, doors: {} }, [], true);
+  }
+
+  private hoverable(c: Container, target: () => HoverTarget | null): void {
+    c.eventMode = 'static';
+    c.cursor = 'help';
+    const show = (e: { clientX: number; clientY: number }) => this.cb.onHover(target(), e.clientX, e.clientY);
+    c.on('pointerover', show);
+    c.on('pointermove', show);
+    c.on('pointerout', () => this.cb.onHover(null, 0, 0));
   }
 
   private fit = (): void => {
@@ -141,6 +160,7 @@ export class BoardView {
   update(state: GameState, hints: Hints, events: GameEvent[], instant = false): void {
     if (this.destroyed || !this.app.renderer) return;
     const sc = getScenario(state.scenarioId);
+    this.lastState = state;
     this.activeId = state.turn?.survivorId ?? null;
     const g = this.bg;
     g.clear();
@@ -195,6 +215,7 @@ export class BoardView {
   }
 
   private truckLabel?: Text;
+  private truckHit?: Container;
   private drawTruck(g: Graphics, x: number, y: number, state: GameState): void {
     const ready = state.team.keys && state.team.fuel;
     const body = ready ? 0x43a047 : 0x6b7280;
@@ -208,6 +229,12 @@ export class BoardView {
       this.truckLabel = label('', 12, 0xffffff, true);
       this.truckLabel.anchor.set(0.5, 0);
       this.labelLayer.addChild(this.truckLabel);
+    }
+    if (!this.truckHit) {
+      this.truckHit = new Container();
+      this.truckHit.hitArea = new Rectangle(cx - 4, cy - 2, 92, 46);
+      this.hoverable(this.truckHit, () => ({ kind: 'truck', id: 'truck' }));
+      this.labelLayer.addChild(this.truckHit);
     }
     this.truckLabel.text = ready ? 'TRUCK: all aboard, then Start' : 'EXIT: the truck';
     this.truckLabel.style.fill = ready ? 0xa5d6a7 : 0xcfd8dc;
@@ -240,11 +267,13 @@ export class BoardView {
     badge.anchor.set(0.5, 0);
     badge.position.set(0, 14);
     c.addChild(ring, body, t, badge);
+    c.hitArea = new Circle(0, 0, 18);
+    this.hoverable(c, () => ({ kind: 'survivor', id }));
     this.tokenLayer.addChild(c);
     return { c, x: 0, y: 0, dying: false, spawn: 0 };
   }
 
-  private makeZombie(type: ZombieType): Tok {
+  private makeZombie(id: string, type: ZombieType): Tok {
     const c = new Container();
     const g = new Graphics();
     const col = ZOMBIE_COLORS[type];
@@ -260,6 +289,8 @@ export class BoardView {
       t.position.set(0, type === 'sprinter' ? 3 : 0);
       c.addChild(t);
     }
+    c.hitArea = new Circle(0, 0, 16);
+    this.hoverable(c, () => ({ kind: 'zombie', id }));
     this.tokenLayer.addChild(c);
     return { c, x: 0, y: 0, dying: false, spawn: 0 };
   }
@@ -307,7 +338,7 @@ export class BoardView {
         let tok = this.zombies.get(id);
         const z = state.zombies.find((q) => q.id === id)!;
         if (!tok) {
-          tok = this.makeZombie(z.type);
+          tok = this.makeZombie(id, z.type);
           this.zombies.set(id, tok);
           tok.spawn = instant ? 1 : 0.01;
           tok.c.scale.set(tok.spawn);
@@ -357,7 +388,7 @@ export class BoardView {
       const type = e.type;
       if (type === 'attack') {
         const rolls = (e['rolls'] as number[]).join(' ');
-        later(() => this.float(e['target'] as string, `d6: ${rolls}`, 0xffffff, -34));
+        later(() => this.float(e['target'] as string, `d6: ${rolls}  (hit ${e['needs']}+)`, 0xffffff, -34));
       } else if (type === 'zombie_killed') {
         later(() => this.float(e['zone'] as string, 'KILL', 0xffee58));
       } else if (type === 'wounded') {

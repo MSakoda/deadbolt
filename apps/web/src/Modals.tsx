@@ -6,7 +6,7 @@ export function itemStat(id: ItemId): string {
   const d = ITEMS[id];
   const parts: string[] = [];
   if (d.kind === 'melee' || d.kind === 'ranged') {
-    parts.push(`${d.dice} die${d.dice === 1 ? '' : 's'}, ${d.accuracy}+, dmg ${d.damage}`);
+    parts.push(`${d.dice} die${d.dice === 1 ? '' : 's'}, hits on ${d.accuracy}+ (${Math.round(((7 - d.accuracy!) / 6) * 100)}% each), dmg ${d.damage}`);
     parts.push(d.kind === 'melee' ? 'melee' : `range ${d.range![0]}-${d.range![1]}`);
     if (d.noisy) parts.push('noisy');
     if (d.dual) parts.push('dual');

@@ -24,6 +24,9 @@ const ROWS: { icon: React.ReactNode; name: string; text: string }[] = [
 export function Legend() {
   return (
     <div className="legend">
+      <div className="lg-row"><div><b>How attacks work</b>
+        <div className="dim">Each die hits when it rolls the weapon&rsquo;s number <i>or higher</i>. Hit chance per die: 3+ is 67%, 4+ is 50%, 5+ is 33%, 6+ is 17%. A single-die 4+ weapon (crowbar, axe, pistol, machete) misses half the time; the frying pan only hits on a 6.
+        More dice means more chances: Sawed-off 2 dice at 3+, SMG 3 dice at 5+, Chainsaw 5 dice at 5+. A hit only kills if the weapon&rsquo;s damage meets the zombie&rsquo;s toughness. Hover any weapon or zombie to see the numbers.</div></div></div>
       {ROWS.map((r) => (
         <div key={r.name} className="lg-row">
           {r.icon}

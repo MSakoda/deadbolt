@@ -19,7 +19,7 @@ export function describe(s: GameState, e: GameEvent): LogLine | null {
     case 'cards_drawn': return L(`${sname(e['survivor'])} finds ${e['count']} item${e['count'] === 1 ? '' : 's'}`);
     case 'card_kept': return L(e['item'] ? `${sname(e['survivor'])} keeps the ${item(e['item'])}` : `${sname(e['survivor'])} leaves everything`);
     case 'alarm': return L(`An alarm goes off in ${zn(e['zone'])}!`, 'bad');
-    case 'attack': return L(`${sname(e['survivor'])} attacks ${zn(e['target'])} with ${item(e['weapon'])}${e['dual'] ? ' (dual)' : ''}: ${(e['rolls'] as number[]).join(', ')} -> ${e['hits']} hit${e['hits'] === 1 ? '' : 's'}`);
+    case 'attack': return L(`${sname(e['survivor'])} attacks ${zn(e['target'])} with ${item(e['weapon'])}${e['dual'] ? ' (dual)' : ''}: rolled ${(e['rolls'] as number[]).join(', ')} (hit on ${e['needs']}+) -> ${e['hits']} hit${e['hits'] === 1 ? '' : 's'}`);
     case 'reroll': return L(`Reroll (${String(e['why']).replace(/_/g, ' ')}): ${e['from']} -> ${e['to']}`);
     case 'zombie_killed': return L(`${e['zombieType']} killed in ${zn(e['zone'])} (+${e['xp']} XP)`, 'good');
     case 'hit_wasted': return L('A hit was too weak to kill', 'info');
