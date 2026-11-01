@@ -26,7 +26,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
   const [toast, setToast] = useState('');
   const [inv, setInv] = useState(false);
   const [bigLog, setBigLog] = useState(false);
-  const [hover, setHover] = useState<{ t: HoverTarget; x: number; y: number } | null>(null);
+  const [hover, setHover] = useState<{ t: HoverTarget; x: number; y: number; sticky?: boolean } | null>(null);
   const [prefer, setPrefer] = useState<ZombieType | ''>('');
   const host = useRef<HTMLDivElement>(null);
   const board = useRef<BoardView | null>(null);
@@ -90,7 +90,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
     let cancelled = false;
     let view: BoardView | null = null;
     BoardView.create(host.current!, {
-      onHover: (target, x, y) => setHover(target ? { t: target, x, y } : null),
+      onHover: (target, x, y, sticky) => setHover(target ? { t: target, x, y, sticky } : null),
       onZone: (zone: ZoneId) => {
         const { legal, mode, dispatch, prefer } = latest.current;
         if (mode) {
@@ -122,6 +122,14 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
     board.current?.update(state, hints, events.current);
     events.current = [];
   }, [state, hints]);
+
+  // A tooltip pinned by a tap goes away on the next touch.
+  useEffect(() => {
+    if (!hover?.sticky) return;
+    const off = () => setHover(null);
+    document.addEventListener('pointerdown', off, { capture: true, once: true });
+    return () => document.removeEventListener('pointerdown', off, { capture: true });
+  }, [hover]);
 
   useEffect(() => { logEnd.current?.scrollIntoView({ block: 'end' }); }, [g.log.length]);
 
@@ -167,6 +175,11 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
           <span className="grow" />
           <button onClick={() => { if (confirm('Leave this game? It will be lost.')) onExit(); }}>Quit</button>
         </div>
+        <div className="zoombtns">
+          <button onClick={() => board.current?.zoomBy(1.3)} aria-label="zoom in">+</button>
+          <button onClick={() => board.current?.zoomBy(1 / 1.3)} aria-label="zoom out">&minus;</button>
+          <button onClick={() => board.current?.resetView()} aria-label="reset view">&#8634;</button>
+        </div>
         {mode && <div className="banner">Pick a red zone to attack. <button onClick={() => setMode(null)}>Cancel</button></div>}
         {toast && <div className="toast" onClick={() => setToast('')}>{toast}</div>}
         {state.status !== 'active' && (
@@ -179,7 +192,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
           </div>
         )}
         {hover && !bigLog && (
-          <div className="tip" style={{ left: Math.min(hover.x + 16, window.innerWidth - 340), top: Math.min(hover.y + 16, window.innerHeight - 320) }}>
+          <div className="tip" style={{ left: Math.max(8, Math.min(hover.x + 16, window.innerWidth - 336)), top: Math.max(8, Math.min(hover.y + 16, window.innerHeight - 340)) }}>
             <TipBody state={state} t={hover.t} players={g.players} />
           </div>
         )}

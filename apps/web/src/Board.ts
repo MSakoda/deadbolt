@@ -14,7 +14,7 @@ export interface Hints {
 }
 export interface HoverTarget { kind: 'survivor' | 'zombie' | 'door' | 'marker' | 'truck'; id: string }
 export interface BoardCallbacks {
-  onHover(t: HoverTarget | null, x: number, y: number): void;
+  onHover(t: HoverTarget | null, x: number, y: number, sticky?: boolean): void;
   onZone(id: ZoneId): void;
   onDoor(edgeId: string, a: ZoneId, b: ZoneId): void;
 }
@@ -77,6 +77,7 @@ export class BoardView {
     });
     if (this.destroyed) { this.app.destroy(true); return; }
     host.appendChild(this.app.canvas);
+    this.bindGestures(this.app.canvas);
     this.app.stage.addChild(this.world);
     this.world.addChild(this.bg, this.labelLayer, this.doorLayer, this.tokenLayer, this.fx);
 
@@ -91,7 +92,7 @@ export class BoardView {
       const hit = new Container();
       hit.hitArea = new Rectangle(zx(z.col), zy(z.row), CELL_W, CELL_H);
       hit.eventMode = 'static';
-      hit.on('pointertap', () => cb.onZone(z.id));
+      hit.on('pointertap', () => { if (!this.dragged) cb.onZone(z.id); });
       this.labelLayer.addChild(hit);
       this.zoneHit.set(z.id, hit);
       const t = label(z.name.toUpperCase(), 12, 0x9aa4b2, true);
@@ -116,7 +117,7 @@ export class BoardView {
       hit.hitArea = new Rectangle(x - hw / 2, y - hh / 2, hw, hh);
       hit.eventMode = 'static';
       hit.cursor = 'pointer';
-      hit.on('pointertap', () => cb.onDoor(e.id, e.a, e.b));
+      hit.on('pointertap', () => { if (!this.dragged) cb.onDoor(e.id, e.a, e.b); });
       this.hoverable(hit, () => ({ kind: 'door', id: e.id }));
       hit.cursor = 'pointer';
       this.doorLayer.addChild(hit);
@@ -133,10 +134,108 @@ export class BoardView {
   private hoverable(c: Container, target: () => HoverTarget | null): void {
     c.eventMode = 'static';
     c.cursor = 'help';
-    const show = (e: { clientX: number; clientY: number }) => this.cb.onHover(target(), e.clientX, e.clientY);
+    type Ev = { clientX: number; clientY: number; pointerType?: string };
+    const show = (e: Ev) => { if (e.pointerType !== 'touch') this.cb.onHover(target(), e.clientX, e.clientY); };
     c.on('pointerover', show);
     c.on('pointermove', show);
-    c.on('pointerout', () => this.cb.onHover(null, 0, 0));
+    c.on('pointerout', (e: Ev) => { if (e.pointerType !== 'touch') this.cb.onHover(null, 0, 0); });
+    // On touch screens a tap pins the tooltip until the next touch.
+    c.on('pointertap', (e: Ev) => { if (e.pointerType === 'touch' && !this.dragged) this.cb.onHover(target(), e.clientX, e.clientY, true); });
+  }
+
+  // ---------- pan and zoom ----------
+
+  private zoom = 1;
+  private base = 1;
+  private baseX = 0;
+  private baseY = 0;
+  private panX = 0;
+  private panY = 0;
+  dragged = false;
+
+  private applyView(): void {
+    const w = this.app.screen.width, h = this.app.screen.height;
+    const s = this.base * this.zoom;
+    const sw = this.worldW * s, sh = this.worldH * s;
+    const clamp = (v: number, size: number, view: number) => {
+      if (size <= view) return (view - size) / 2;
+      return Math.min(0, Math.max(view - size, v));
+    };
+    const x = clamp(this.baseX + this.panX, sw, w);
+    const y = clamp(this.baseY + this.panY, sh, h);
+    this.panX = x - this.baseX;
+    this.panY = y - this.baseY;
+    this.world.scale.set(s);
+    this.world.position.set(x, y);
+  }
+
+  /** Zoom by `f` keeping the screen point (px, py) still. */
+  zoomBy(f: number, px = this.app.screen.width / 2, py = this.app.screen.height / 2): void {
+    const z = Math.min(4, Math.max(1, this.zoom * f));
+    const s1 = this.base * this.zoom, s2 = this.base * z;
+    const wx = (px - this.world.position.x) / s1, wy = (py - this.world.position.y) / s1;
+    this.zoom = z;
+    this.panX = px - wx * s2 - this.baseX;
+    this.panY = py - wy * s2 - this.baseY;
+    this.applyView();
+  }
+
+  resetView(): void {
+    this.zoom = 1; this.panX = 0; this.panY = 0;
+    this.applyView();
+  }
+
+  private bindGestures(canvas: HTMLCanvasElement): void {
+    canvas.style.touchAction = 'none';
+    const pts = new Map<number, { x: number; y: number }>();
+    let moved = 0;
+    let lastDist = 0;
+    const local = (e: PointerEvent) => {
+      const r = canvas.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    canvas.addEventListener('pointerdown', (e) => {
+      pts.set(e.pointerId, local(e));
+      moved = 0;
+      lastDist = 0;
+      this.dragged = false;
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const prev = pts.get(e.pointerId);
+      if (!prev) return;
+      const cur = local(e);
+      if (pts.size === 1) {
+        moved += Math.abs(cur.x - prev.x) + Math.abs(cur.y - prev.y);
+        if (moved > 8) {
+          this.dragged = true;
+          this.panX += cur.x - prev.x;
+          this.panY += cur.y - prev.y;
+          this.applyView();
+        }
+      } else if (pts.size === 2) {
+        pts.set(e.pointerId, cur);
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
+        if (lastDist > 0) this.zoomBy(d / lastDist, (a!.x + b!.x) / 2, (a!.y + b!.y) / 2);
+        lastDist = d;
+        this.dragged = true;
+        return;
+      }
+      pts.set(e.pointerId, cur);
+    });
+    const up = (e: PointerEvent) => {
+      pts.delete(e.pointerId);
+      lastDist = 0;
+      setTimeout(() => { if (pts.size === 0) this.dragged = false; }, 0);
+    };
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const p = local(e as unknown as PointerEvent);
+      this.zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y);
+    }, { passive: false });
+    canvas.addEventListener('dblclick', () => this.resetView());
   }
 
   private fit = (): void => {
@@ -145,8 +244,10 @@ export class BoardView {
     const h = this.app.screen.height;
     if (!this.worldW) return;
     const s = Math.min(w / this.worldW, h / this.worldH);
-    this.world.scale.set(s);
-    this.world.position.set((w - this.worldW * s) / 2, (h - this.worldH * s) / 2);
+    this.base = s;
+    this.baseX = (w - this.worldW * s) / 2;
+    this.baseY = (h - this.worldH * s) / 2;
+    this.applyView();
   };
 
   destroy(): void {

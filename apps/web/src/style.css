@@ -5,6 +5,7 @@
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+body { overflow-x: hidden; }
 body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; }
 button, select, input { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
 button { cursor: pointer; }
@@ -86,12 +87,19 @@ button.mini { padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
 .slotlabel { width: 52px; color: var(--dim); font-size: 11px; }
 
 @media (max-width: 900px) {
-  .game { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; min-height: 100%; }
-  .boardwrap { height: 55vh; }
-  .side { border-left: 0; border-top: 1px solid var(--line); }
+  .game { grid-template-columns: minmax(0, 1fr); grid-template-rows: 62vh auto; height: auto; min-height: 100%; }
+  .boardwrap { height: 62vh; min-width: 0; }
+  .side { border-left: 0; border-top: 1px solid var(--line); min-width: 0; overflow-y: visible; }
+  .topbar { gap: 10px; font-size: 12.5px; padding: 0 8px; overflow: hidden; }
+  .topbar span { white-space: nowrap; }
+  .lobby { padding: 20px 12px 60px; }
+  .modal { max-width: calc(100vw - 16px); max-height: 92vh; overflow-y: auto; }
+  .btns button { padding: 9px 12px; }
 }
-
-.tip { position: fixed; z-index: 50; width: 320px; background: #0b0e13; border: 1px solid #3a4558; border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 30px rgba(0,0,0,.6); pointer-events: none; font-size: 13px; line-height: 1.35; }
+.zoombtns { position: absolute; left: 10px; bottom: 10px; z-index: 4; display: flex; flex-direction: column; gap: 6px; }
+.zoombtns button { width: 36px; height: 36px; padding: 0; font-size: 18px; background: rgba(23,27,35,.9); }
+.tip { position: fixed; z-index: 50; width: min(320px, calc(100vw - 16px)); background: #0b0e13; border: 1px solid #3a4558; border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 30px rgba(0,0,0,.6); pointer-events: none; font-size: 13px; line-height: 1.35; }
 .tip-h { margin-bottom: 4px; } .tip-s { margin-top: 8px; color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 .tip-i { margin: 2px 0; } .sm { font-size: 12px; }
 .btnsub { display: block; color: var(--dim); font-size: 11px; font-weight: 400; }
+.topbar b { white-space: nowrap; }
