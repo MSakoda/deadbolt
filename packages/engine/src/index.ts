@@ -9,5 +9,5 @@ export { ITEMS, SEARCH_DECK } from './data/items';
 export { CHARACTERS, CHARACTER_BY_ID, ABILITY_TEXT } from './data/characters';
 export { SPAWN_CARDS, ZOMBIE_DEFS, LEVEL_XP } from './data/spawn';
 export { LONG_BLOCK, SCENARIOS } from './data/scenario';
-export { visible, distances, neighbors, graphFor, getScenario } from './map';
+export { visible, distances, neighbors, graphFor, getScenario, edgeBetween } from './map';
 export { danger, noiseAt, woundCount, abilities, livingSurvivors } from './core';

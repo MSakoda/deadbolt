@@ -5,9 +5,21 @@ whenever they have time; the next player is emailed. This repo currently contain
 the pure TypeScript rules engine, the scenario "The Long Block", a bot, a terminal simulator
 and tests. The board UI, server, accounts and email come in later phases.
 
+## Play it (hot-seat)
+
+```
+npm install
+npm run dev        # http://localhost:5173
+```
+
+Pick players and survivors in the lobby, then pass the screen around. Click a blue zone to move,
+an orange door to open it, or choose a weapon and click a red zone to attack. Dice rolls and card
+draws lock in; other actions can be undone until you end your turn. The game autosaves in the browser.
+
 ## Layout
 
 ```
+apps/web             React + PixiJS client (hot-seat for now)
 packages/engine      rules engine (pure, serializable, no I/O)
   src/data           items, survivors, spawn deck, scenario map
   src/               core, actions, zombies, turns, setup, apply, legal, bot, render
