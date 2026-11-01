@@ -1,0 +1,11 @@
+{
+  "name": "deadbolt",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "npm test -w @deadbolt/engine",
+    "typecheck": "npm run typecheck -w @deadbolt/engine",
+    "sim": "npm run sim -w @deadbolt/engine"
+  }
+}
