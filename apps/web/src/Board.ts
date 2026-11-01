@@ -169,6 +169,7 @@ export class BoardView {
         }
       }
       this.drawMarker(z.id, state);
+      if (z.id === sc.exitZone) this.drawTruck(g, x, y, state);
     }
 
     for (const e of sc.edges) {
@@ -191,6 +192,26 @@ export class BoardView {
 
     this.syncTokens(state, instant);
     this.playEvents(events);
+  }
+
+  private truckLabel?: Text;
+  private drawTruck(g: Graphics, x: number, y: number, state: GameState): void {
+    const ready = state.team.keys && state.team.fuel;
+    const body = ready ? 0x43a047 : 0x6b7280;
+    const cx = x + CELL_W / 2 - 40, cy = y + 90;
+    g.roundRect(cx, cy, 56, 30, 4).fill(body);
+    g.roundRect(cx + 56, cy + 9, 24, 21, 4).fill(body);
+    g.rect(cx + 62, cy + 13, 12, 8).fill(0x12151b);
+    g.circle(cx + 14, cy + 32, 7).fill(0x12151b).stroke({ width: 2, color: 0x9aa4b2 });
+    g.circle(cx + 66, cy + 32, 7).fill(0x12151b).stroke({ width: 2, color: 0x9aa4b2 });
+    if (!this.truckLabel) {
+      this.truckLabel = label('', 12, 0xffffff, true);
+      this.truckLabel.anchor.set(0.5, 0);
+      this.labelLayer.addChild(this.truckLabel);
+    }
+    this.truckLabel.text = ready ? 'TRUCK: all aboard, then Start' : 'EXIT: the truck';
+    this.truckLabel.style.fill = ready ? 0xa5d6a7 : 0xcfd8dc;
+    this.truckLabel.position.set(x + CELL_W / 2, y + 28);
   }
 
   private drawMarker(zoneId: ZoneId, state: GameState): void {

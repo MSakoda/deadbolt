@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ABILITY_TEXT, CHARACTER_BY_ID, DANGER_NAMES, ITEMS, LEVEL_XP, abilities, applyAction, danger, edgeBetween,
-  legalActions, woundCount,
+  legalActions, woundCount, getScenario,
 } from '@deadbolt/engine';
 import type { Action, GameEvent, GameState, ZombieType, ZoneId } from '@deadbolt/engine';
 import { BoardView, SURVIVOR_COLORS, type Hints } from './Board';
 import { InventoryModal, SearchModal, CardChip } from './Modals';
 import { describeAll, type LogLine } from './log';
 import { save, type Saved } from './persist';
+import { Goal, Legend } from './Legend';
 
 const LOCK = new Set([
   'attack', 'molotov', 'cards_drawn', 'alarm', 'reroll', 'building_opened', 'objective_taken', 'spawn_card', 'zombie_phase_start',
@@ -22,6 +23,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
   const [mode, setMode] = useState<Mode>(null);
   const [toast, setToast] = useState('');
   const [inv, setInv] = useState(false);
+  const [bigLog, setBigLog] = useState(false);
   const [prefer, setPrefer] = useState<ZombieType | ''>('');
   const host = useRef<HTMLDivElement>(null);
   const board = useRef<BoardView | null>(null);
@@ -146,7 +148,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
   });
 
   const grants = legal.filter((a): a is Extract<Action, { type: 'grant' }> => a.type === 'grant');
-  const zname = (id: string) => state.scenarioId && id.replace(/_/g, ' ');
+  const zname = (id: string) => getScenario(state.scenarioId).zones.find((z) => z.id === id)?.name ?? id;
 
   return (
     <div className="game">
@@ -172,11 +174,22 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
             </div>
           </div>
         )}
+        {bigLog && (
+          <div className="modal-bg" onClick={() => setBigLog(false)}>
+            <div className="modal huge" onClick={(e) => e.stopPropagation()}>
+              <div className="loghead"><h3>Game log</h3><button onClick={() => setBigLog(false)}>Close</button></div>
+              <div className="log full">
+                {g.log.map((l, i) => <div key={i} className={'ln ' + l.kind}>{l.text}</div>)}
+              </div>
+            </div>
+          </div>
+        )}
         {state.pending && actor && <SearchModal state={state} actor={actor} dispatch={dispatch} />}
         {inv && actor && <InventoryModal state={state} actor={actor} cost={reorgCost} dispatch={(a) => { if (dispatch(a)) setInv(false); }} onClose={() => setInv(false)} />}
       </div>
 
       <aside className="side">
+        <Goal state={state} />
         {actor && char && turn && (
           <div className="card">
             <div className="who">
@@ -269,10 +282,17 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
           })}
         </div>
 
-        <div className="card log">
-          {g.log.slice(-120).map((l, i) => <div key={i} className={'ln ' + l.kind}>{l.text}</div>)}
-          <div ref={logEnd} />
+        <div className="card logcard">
+          <div className="loghead"><b>What happened</b><button className="mini" onClick={() => setBigLog(true)}>Expand</button></div>
+          <div className="log">
+            {g.log.slice(-200).map((l, i) => <div key={i} className={'ln ' + l.kind}>{l.text}</div>)}
+            <div ref={logEnd} />
+          </div>
         </div>
+        <details className="card">
+          <summary><b>Legend: what the icons mean</b></summary>
+          <Legend />
+        </details>
       </aside>
     </div>
   );
