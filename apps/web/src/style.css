@@ -133,3 +133,7 @@ button.mini { padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
   .rb-tabs { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid #3a424c; min-width: 0; flex: none; }
   .rb-body { padding: 12px 14px 30px; }
 }
+
+.card.waiting { text-align: center; padding: 16px; }
+.tag.bad { background: #5a2a2a; color: #ffb4b4; }
+.lobby textarea { resize: vertical; }

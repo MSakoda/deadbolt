@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import {
   applyAction,
   CHARACTERS,
+  SPAWN_CARDS,
   createGame,
   legalActions,
   RULES_VERSION,
@@ -44,6 +45,8 @@ const pad = (n: number) => String(n).padStart(14, '0');
 export const normEmail = (e: string) => e.trim().toLowerCase();
 
 const DIGEST_HOUR = 8;
+/** A valid card id, so client-side dry runs of the zombie phase do not throw. */
+const SPAWN_PLACEHOLDER = SPAWN_CARDS[0]!.id;
 
 /** Local calendar date (YYYY-MM-DD) and hour in an IANA timezone. */
 export function localTime(ms: number, tz: string): { date: string; hour: number } {
@@ -61,11 +64,12 @@ export function activeOwner(state: GameState): string | null {
   return (id && state.survivors[id]?.owner) || null;
 }
 
-/** What a viewer may see: no deck order, no seed, hidden markers masked, a pending search only for its owner. */
+/** What a viewer may see: deck sizes only, no deck order, no seed, hidden markers masked, a pending search only for its owner. */
 export function redact(state: GameState, viewerId: string): GameState {
   const s = structuredClone(state);
-  s.searchDeck = [];
-  s.spawnDeck = [];
+  // Same length (so client-side previews behave), no information about order.
+  s.searchDeck = s.searchDeck.map((_, i) => ({ id: 'hidden' + i, item: 'wound' as const }));
+  s.spawnDeck = s.spawnDeck.map(() => SPAWN_PLACEHOLDER);
   s.rng = 0;
   if (s.pending && activeOwner(state) !== viewerId) s.pending = null;
   for (const tok of Object.values(s.objectives)) if (tok.hidden) tok.kind = 'supplies';
@@ -154,7 +158,7 @@ export class Service {
       createdAt: this.now(),
     };
     await this.store.put('tokens', t.hash, t);
-    return `${this.baseUrl}/auth/verify?token=${token}`;
+    return `${this.baseUrl}/api/auth/verify?token=${token}`;
   }
 
   async requestLogin(email: string, next?: string): Promise<void> {
@@ -502,6 +506,7 @@ export class Service {
       },
       you: { userId, role: me.role },
       state: g.state ? redact(g.state, userId) : null,
+      legal: this.legalFor(g, userId),
       recap: (await this.log(gameId, from)).map(({ seq, at, actor, kind, action, events }) => ({
         seq, at, actor, kind, action, events,
       })),
@@ -518,25 +523,46 @@ export class Service {
   }
 
   /** Legal actions are computed against the full state, since the client only has a redacted one. */
+  private legalFor(g: Game, userId: string): Action[] {
+    return g.state && g.state.status === 'active' && g.activeOwner === userId ? legalActions(g.state, userId) : [];
+  }
+
   async legal(gameId: string, userId: string): Promise<Action[]> {
     const g = await this.getGame(gameId);
     this.requireMember(g, userId);
-    return g.state && g.state.status === 'active' ? legalActions(g.state, userId) : [];
+    return this.legalFor(g, userId);
   }
 
-  async act(gameId: string, userId: string, action: Action) {
+  /**
+   * Applies a batch of actions in order, all or nothing. The client batches
+   * the reversible steps it previewed locally with the step that needs the
+   * server's dice or decks.
+   */
+  async act(gameId: string, userId: string, actions: Action[]) {
     return this.lock(gameId, async () => {
       const g = await this.getGame(gameId);
       this.requireMember(g, userId);
       if (g.status !== 'active' || !g.state) throw new HttpError(409, 'game is not running');
-      if (activeOwner(g.state) !== userId) throw new HttpError(403, 'not your turn');
-      if (!action || typeof action.type !== 'string') throw new HttpError(400, 'action required');
-      const r = applyAction(g.state, action);
-      if (!r.ok) throw new HttpError(422, r.error);
-      g.state = r.state;
-      await this.append(g, userId, 'action', action, r.events);
+      if (!Array.isArray(actions) || actions.length === 0 || actions.length > 40) throw new HttpError(400, 'actions required');
+      let st = g.state;
+      const done: { action: Action; events: GameEvent[] }[] = [];
+      for (const [i, action] of actions.entries()) {
+        if (!action || typeof action.type !== 'string') throw new HttpError(400, 'action required');
+        if (activeOwner(st) !== userId) throw new HttpError(403, 'not your turn');
+        const r = applyAction(st, action);
+        if (!r.ok) throw new HttpError(422, actions.length > 1 ? `action ${i + 1}: ${r.error}` : r.error);
+        st = r.state;
+        done.push({ action, events: r.events });
+      }
+      g.state = st;
+      for (const d of done) await this.append(g, userId, 'action', d.action, d.events);
       await this.afterChange(g);
-      return { events: r.events, seq: g.seq, state: redact(r.state, userId) };
+      return {
+        events: done.flatMap((d) => d.events),
+        seq: g.seq,
+        state: redact(st, userId),
+        legal: this.legalFor(g, userId),
+      };
     });
   }
 

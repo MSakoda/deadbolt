@@ -11,7 +11,7 @@ export interface LobbyResult {
 
 interface Row { charId: string; on: boolean; owner: number }
 
-export function Lobby({ onStart, onResume }: { onStart(r: LobbyResult): void; onResume?: () => void }) {
+export function Lobby({ onStart, onResume, onBack }: { onStart(r: LobbyResult): void; onResume?: () => void; onBack?: () => void }) {
   const [players, setPlayers] = useState<string[]>(['Player 1', 'Player 2', 'Player 3', 'Player 4']);
   const [rows, setRows] = useState<Row[]>(() =>
     CHARACTERS.map((c, i) => ({ charId: c.id, on: i < 4, owner: i % 4 })),
@@ -94,6 +94,7 @@ export function Lobby({ onStart, onResume }: { onStart(r: LobbyResult): void; on
         })}>Start game</button>
         <button onClick={() => setRules(true)}>Rulebook</button>
         {onResume && <button onClick={onResume}>Resume saved game</button>}
+        {onBack && <button onClick={onBack}>Online games</button>}
         {!valid && <span className="err">Choose between 1 and 6 survivors.</span>}
       </section>
       {rules && <Rulebook onClose={() => setRules(false)} />}

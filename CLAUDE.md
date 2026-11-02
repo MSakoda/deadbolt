@@ -7,8 +7,8 @@ Original, Zombicide-inspired, cooperative, **asynchronous** web board game for M
 npm workspaces (`packages/*`, `apps/*`):
 
 - `packages/engine` (`@deadbolt/engine`): pure TypeScript rules engine. No I/O, no DOM. Deterministic and replayable.
-- `apps/web` (`@deadbolt/web`): Vite + React 18 + PixiJS 8 client. Currently hot-seat (one shared screen), autosaved to localStorage key `deadbolt-hotseat-v1`.
-- `apps/server` (`@deadbolt/server`): Fastify API. `service.ts` holds all logic (auth, games, turns, host tools, email jobs); `app.ts` is thin routes; `store.ts` is a generic doc store (MemoryStore + optional JSON file); `mail.ts` is a console mailer. Games are seed + log, state cached on the game doc; clients get `redact()`ed state. Run: `npm run server` (env PORT, BASE_URL, DATA_FILE, JOB_SECRET).
+- `apps/web` (`@deadbolt/web`): Vite + React 18 + PixiJS 8 client. Online by default (`OnlineApp.tsx`: sign-in, my games, create game; `OnlineGame.tsx`: lobby, board, host panel, 10s polling) with hot-seat still available (autosaved to localStorage key `deadbolt-hotseat-v1`). `api.ts` calls `/api/*`; vite proxies it to :8787.
+- `apps/server` (`@deadbolt/server`): Fastify API. `service.ts` holds all logic (auth, games, turns, host tools, email jobs); `app.ts` is thin routes; `store.ts` is a generic doc store (MemoryStore + optional JSON file); `mail.ts` is a console mailer. Games are seed + log, state cached on the game doc; clients get `redact()`ed state. All routes live under `/api`. Run: `npm run server` (env PORT, BASE_URL, DATA_FILE, JOB_SECRET). Dev: run the server with `BASE_URL=http://localhost:5173` (emailed links go through vite) and `npm run dev` for the web app; sign-in links are printed in the server console.
 - Planned: Neon Postgres store, Resend mailer, Render free hosting with an external cron hitting `POST /jobs/run` (header `x-job-secret`).
 
 ## Commands
@@ -52,7 +52,7 @@ npm run server      # dev API on :8787, mail printed to console
 ## Web client notes
 
 - `Board.ts`: Pixi `BoardView` (`create`, `update(state, hints, events, instant)`, `zoomBy`, `resetView`). Tweened retained tokens, pan/zoom, hover/tap tooltips.
-- `Game.tsx`: React HUD driven by `legalActions`. Undo stack locks on dice, draws, hidden reveals, building opens, spawn events and end_turn.
+- `Game.tsx`: React HUD driven by `legalActions`. With an `online` prop (`online.ts`) reversible actions are previewed locally on the redacted state and queued; any action that rolls dice, draws cards, opens a building or ends the turn flushes the queue to `POST /api/games/:id/actions` as one atomic batch. Redacted decks keep their length with placeholder cards so local dry runs work. Undo stack locks on dice, draws, hidden reveals, building opens, spawn events and end_turn.
 - `Rulebook.tsx`: tabbed modal (lobby and in-game). Update the prose when rules change.
 - Mobile: layout breakpoint 900px. Test with Playwright using `--use-gl=swiftshader --enable-unsafe-swiftshader --ignore-gpu-blocklist`.
 
@@ -60,7 +60,7 @@ npm run server      # dev API on :8787, mail printed to console
 
 1. Engine: done.
 2. Hot-seat web client with legend, goal panel, tooltips, hit chances, mobile pan/zoom, rulebook: done.
-3. Server: slice 1 done (magic-link auth, invites, lobby/start, per-action validation by the engine, recap, nudges + host prompt, host skip/handover/transfer, job runner, 23 tests; console mail, memory store). Daily digest done (8 AM in the user's `tz`, set via PATCH /me, once per local day, only if others acted). Remaining: Postgres store (Neon), Resend mailer, web client talking to the API (replace hot-seat; search/dice resolve on the server, client undo only before random steps), deploy. Needs the user to create Neon and Resend accounts and pick hosting.
+3. Server: done except hosting. Magic-link auth, invites, lobby/start, atomic batched actions validated by the engine, recap, nudges + host prompt, daily digest (8 AM in the user's `tz`), host skip/handover/transfer, job runner, 25 tests, and the web client talking to it (verified end to end in a browser with two players). Remaining: Postgres store (Neon), Resend mailer, serving the built web app from the server (`@fastify/static` + SPA fallback) for a single Render service, cron ping, character picking in the create-game form, animated recap on open. Needs the user to create Neon and Resend accounts and pick hosting.
 4. Polish: fuller phone layout, bigger bite/kill popups, sound.
 
 ## Conventions

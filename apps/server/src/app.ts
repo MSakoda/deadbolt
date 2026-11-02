@@ -42,6 +42,8 @@ export function buildApp({ service, jobSecret }: AppOptions): FastifyInstance {
 
   app.get('/health', async () => ({ ok: true }));
 
+  app.register(async (app) => {
+
   // ---- auth ----
   app.post('/auth/request', async (req) => {
     const b = body(req);
@@ -69,7 +71,7 @@ export function buildApp({ service, jobSecret }: AppOptions): FastifyInstance {
   // ---- account ----
   app.get('/me', async (req) => {
     const u = await auth(req);
-    return { user: { id: u.id, email: u.email, name: u.name }, games: await service.listGames(u.id) };
+    return { user: { id: u.id, email: u.email, name: u.name, tz: u.tz }, games: await service.listGames(u.id) };
   });
   app.patch('/me', async (req) => {
     const u = await auth(req);
@@ -118,7 +120,8 @@ export function buildApp({ service, jobSecret }: AppOptions): FastifyInstance {
 
   app.post('/games/:id/actions', async (req) => {
     const u = await auth(req);
-    return service.act((req.params as P).id, u.id, body(req).action as Action);
+    const b = body(req);
+    return service.act((req.params as P).id, u.id, (Array.isArray(b.actions) ? b.actions : [b.action]) as Action[]);
   });
 
   app.post('/games/:id/seen', async (req) => {
@@ -149,6 +152,8 @@ export function buildApp({ service, jobSecret }: AppOptions): FastifyInstance {
     if (!jobSecret || req.headers['x-job-secret'] !== jobSecret) throw new HttpError(403, 'forbidden');
     return service.runJobs();
   });
+
+  }, { prefix: '/api' });
 
   return app;
 }

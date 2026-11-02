@@ -12,6 +12,7 @@ import { describeAll, type LogLine } from './log';
 import { save, type Saved } from './persist';
 import { Goal, Legend } from './Legend';
 import { Rulebook } from './Rulebook';
+import type { Online } from './online';
 
 const LOCK = new Set([
   'attack', 'molotov', 'cards_drawn', 'alarm', 'reroll', 'building_opened', 'objective_taken', 'spawn_card', 'zombie_phase_start',
@@ -20,9 +21,12 @@ const PRIORITY: ZombieType[] = ['sprinter', 'brute', 'mutant', 'shambler'];
 
 type Mode = { slot: 0 | 1 | 'both' } | null;
 
-export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
+export function Game({ initial, onExit, online }: { initial: Saved; onExit(): void; online?: Online }) {
   const [g, setG] = useState<Saved>(initial);
   const [undo, setUndo] = useState<{ state: GameState; logLen: number }[]>([]);
+  // Online: reversible steps previewed locally, sent to the server together with the next step that needs its dice or decks.
+  const queue = useRef<Action[]>([]);
+  const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<Mode>(null);
   const [toast, setToast] = useState('');
   const [inv, setInv] = useState(false);
@@ -37,7 +41,9 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
 
   const { state } = g;
   const actor = state.turn ? state.survivors[state.turn.survivorId]! : null;
-  const legal = useMemo<Action[]>(() => (actor && state.status === 'active' ? legalActions(state, actor.owner) : []), [state, actor]);
+  const canAct = !online || (!!actor && actor.owner === online.myId);
+  const ownerName = (o: string) => (online ? online.names[o] : g.players[Number(o)]) ?? o;
+  const legal = useMemo<Action[]>(() => (actor && canAct && !busy && state.status === 'active' ? legalActions(state, actor.owner) : []), [state, actor, canAct, busy]);
 
   const attacksFor = (slot: 0 | 1 | 'both') =>
     legal.filter((a): a is Extract<Action, { type: 'attack' }> => a.type === 'attack' && a.slot === slot);
@@ -59,7 +65,23 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
   }, [legal, mode, state, actor]);
 
   const dispatch = (a: Action): boolean => {
-    const r = applyAction(state, a);
+    // A preview that needs hidden information (or throws on placeholders) just goes to the server.
+    let r: ReturnType<typeof applyAction>;
+    try { r = applyAction(state, a); } catch { r = { ok: false, error: 'needs the server' }; }
+    if (online) {
+      const lock = !r.ok || a.type === 'end_turn' || r.events.some((e) => LOCK.has(e.type));
+      if (r.ok && !lock) {
+        queue.current.push(a);
+        setUndo((u) => [...u, { state, logLen: g.log.length }]);
+        events.current = r.events;
+        setG({ ...g, state: r.state, log: [...g.log, ...describeAll(r.state, r.events)] });
+        setMode(null);
+        setToast('');
+        return true;
+      }
+      void sendToServer([...queue.current, a]);
+      return true;
+    }
     if (!r.ok) { setToast(r.error); return false; }
     const lines: LogLine[] = describeAll(r.state, r.events);
     const lock = a.type === 'end_turn' || r.events.some((e) => LOCK.has(e.type));
@@ -73,14 +95,33 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
     return true;
   };
 
+  const sendToServer = async (actions: Action[]) => {
+    if (!online) return;
+    setBusy(true);
+    const res = await online.send(actions);
+    setBusy(false);
+    if ('error' in res) { setToast(res.error); return; }
+    queue.current = [];
+    setUndo([]);
+    setMode(null);
+    setToast('');
+    events.current = res.events;
+    // The server's state replaces the preview; the log drops the preview's lines and uses the server's events.
+    setG((cur) => ({ ...cur, state: res.state, log: [...cur.log.slice(0, undoBase.current), ...describeAll(res.state, res.events)] }));
+  };
+
+  const undoBase = useRef(0);
+  undoBase.current = undo[0]?.logLen ?? g.log.length;
+
   const doUndo = () => {
     const u = undo[undo.length - 1];
     if (!u) return;
     events.current = [];
     const ng: Saved = { ...g, state: u.state, log: g.log.slice(0, u.logLen) };
+    queue.current.pop();
     setUndo(undo.slice(0, -1));
     setG(ng);
-    save(ng);
+    if (!online) save(ng);
     setMode(null);
   };
 
@@ -133,11 +174,18 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
     return () => document.removeEventListener('pointerdown', off, { capture: true });
   }, [hover]);
 
+  // Online: a newer server state (someone else moved) replaces ours when we have nothing queued.
+  useEffect(() => {
+    if (!online?.remote || queue.current.length) return;
+    events.current = online.remote.events;
+    setG((cur) => ({ ...cur, state: online.remote!.state, log: [...cur.log, ...online.remote!.lines] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online?.remote]);
+
   useEffect(() => { logEnd.current?.scrollIntoView({ block: 'end' }); }, [g.log.length]);
 
   const has = (type: Action['type']) => legal.some((a) => a.type === type);
   const turn = state.turn;
-  const ownerName = actor ? g.players[Number(actor.owner)] ?? `Player ${Number(actor.owner) + 1}` : '';
   const char = actor ? CHARACTER_BY_ID[actor.charId]! : null;
   const abilityIds = actor ? [...abilities(actor)] : [];
   const nextXp = actor && actor.level < 3 ? (LEVEL_XP as readonly number[])[actor.level] : null;
@@ -177,7 +225,8 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
           <span className={state.team.fuel ? 'ok' : 'dim'}>Fuel {state.team.fuel ? '✓' : '—'}</span>
           <span className="grow" />
           <button onClick={() => setRules(true)}>Rulebook</button>
-          <button onClick={() => { if (confirm('Leave this game? It will be lost.')) onExit(); }}>Quit</button>
+          {online?.topExtra}
+          <button onClick={() => { if (online || confirm('Leave this game? It will be lost.')) onExit(); }}>{online ? 'Games' : 'Quit'}</button>
         </div>
         <div className="zoombtns">
           <button onClick={() => board.current?.zoomBy(1.3)} aria-label="zoom in">+</button>
@@ -191,13 +240,13 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
             <div className="modal">
               <h2>{state.status === 'won' ? 'You made it out!' : 'The block is lost.'}</h2>
               <p>{state.status === 'won' ? `Survivors escaped in round ${state.round}.` : `Fallen in round ${state.round}.`}</p>
-              <button className="primary" onClick={onExit}>Back to lobby</button>
+              <button className="primary" onClick={onExit}>{online ? 'Back to my games' : 'Back to lobby'}</button>
             </div>
           </div>
         )}
         {hover && !bigLog && (
           <div className="tip" style={{ left: Math.max(8, Math.min(hover.x + 16, window.innerWidth - 336)), top: Math.max(8, Math.min(hover.y + 16, window.innerHeight - 340)) }}>
-            <TipBody state={state} t={hover.t} players={g.players} />
+            <TipBody state={state} t={hover.t} ownerName={ownerName} />
           </div>
         )}
         {bigLog && (
@@ -210,8 +259,8 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
             </div>
           </div>
         )}
-        {state.pending && actor && <SearchModal state={state} actor={actor} dispatch={dispatch} />}
-        {inv && actor && <InventoryModal state={state} actor={actor} cost={reorgCost} dispatch={(a) => { if (dispatch(a)) setInv(false); }} onClose={() => setInv(false)} />}
+        {state.pending && actor && canAct && <SearchModal state={state} actor={actor} dispatch={dispatch} />}
+        {inv && actor && canAct && <InventoryModal state={state} actor={actor} cost={reorgCost} dispatch={(a) => { if (dispatch(a)) setInv(false); }} onClose={() => setInv(false)} />}
       </div>
 
       <aside className="side">
@@ -222,7 +271,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
               <span className="dot lg" style={{ background: '#' + (SURVIVOR_COLORS[actor.charId] ?? 0xcccccc).toString(16).padStart(6, '0') }} />
               <div>
                 <b>{char.name}</b> <span className="dim">{char.role}</span>
-                <div className="dim">{ownerName}&rsquo;s turn &middot; level {actor.level} &middot; {actor.xp}{nextXp ? `/${nextXp}` : ''} XP &middot; in {zname(actor.zone)}</div>
+                <div className="dim">{actor ? ownerName(actor.owner) : ''}&rsquo;s turn &middot; level {actor.level} &middot; {actor.xp}{nextXp ? `/${nextXp}` : ''} XP &middot; in {zname(actor.zone)}</div>
               </div>
             </div>
             <div className="pips">
@@ -247,7 +296,10 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
           </div>
         )}
 
-        {actor && state.status === 'active' && !state.pending && (
+        {actor && !canAct && state.status === 'active' && (
+          <div className="card waiting">Waiting for <b>{ownerName(actor.owner)}</b> ({char?.name.split(' ')[0]}). The board updates by itself.</div>
+        )}
+        {actor && canAct && state.status === 'active' && !state.pending && (
           <div className="card actions">
             <div className="hint">Click a blue zone to move, an orange door to open it.</div>
             <div className="btns">
@@ -300,7 +352,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
               <div key={id} className={'rrow' + (v.alive ? '' : ' dead') + (turn?.survivorId === id ? ' cur' : '')}>
                 <span className="dot" style={{ background: '#' + (SURVIVOR_COLORS[id] ?? 0xcccccc).toString(16).padStart(6, '0') }} />
                 <span>{CHARACTER_BY_ID[id]?.name.split(' ')[0]}</span>
-                <span className="dim">L{v.level} · {g.players[Number(v.owner)]}</span>
+                <span className="dim">L{v.level} · {ownerName(v.owner)}</span>
                 <span className="grow" />
                 {v.alive ? <span className={woundCount(v) ? 'bad' : 'dim'}>{woundCount(v)}/2 wounds</span> : <span className="bad">down</span>}
               </div>

@@ -6,7 +6,7 @@ import { itemStat } from './Modals';
 
 const DOOR_TOOLS = 'Crowbar (silent), Fire axe or Chainsaw (noisy)';
 
-export function TipBody({ state, t, players }: { state: GameState; t: HoverTarget; players: string[] }) {
+export function TipBody({ state, t, ownerName }: { state: GameState; t: HoverTarget; ownerName(owner: string): string }) {
   const sc = getScenario(state.scenarioId);
   const zn = (id: string) => sc.zones.find((z) => z.id === id)?.name ?? id;
   const actor = state.turn ? state.survivors[state.turn.survivorId]! : null;
@@ -26,7 +26,7 @@ export function TipBody({ state, t, players }: { state: GameState; t: HoverTarge
     else turnLine = `Still to act this round (turn ${idx + 1} of ${state.turnOrder.length}).`;
     return (
       <>
-        <div className="tip-h"><b>{ch.name}</b> <span className="dim">{ch.role} · {players[Number(sv.owner)] ?? sv.owner}</span></div>
+        <div className="tip-h"><b>{ch.name}</b> <span className="dim">{ch.role} · {ownerName(sv.owner)}</span></div>
         <div className={w ? 'bad' : ''}>Health: {sv.alive ? `${2 - w} of 2 (${w} wound${w === 1 ? '' : 's'})` : 'down'}</div>
         <div>{turnLine}</div>
         <div>Level {sv.level} · {sv.xp}{next ? `/${next}` : ''} XP · in {zn(sv.zone)}</div>
