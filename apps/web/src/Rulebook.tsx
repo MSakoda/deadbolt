@@ -4,7 +4,7 @@ import {
   defaultSurvivorsPerPlayer,
 } from '@deadbolt/engine';
 import type { ItemId, ZombieType } from '@deadbolt/engine';
-import { SURVIVOR_COLORS } from './Board';
+import { Portrait, ZombieFace } from './Portrait';
 
 const pct = (acc: number): string => `${Math.round(((7 - acc) / 6) * 100)}%`;
 const hex = (n: number): string => '#' + n.toString(16).padStart(6, '0');
@@ -195,12 +195,12 @@ function Combat() {
 function Zombies() {
   const names: Record<ZombieType, string> = { shambler: 'Shambler', sprinter: 'Sprinter', brute: 'Brute', mutant: 'Mutant' };
   const colour: Record<ZombieType, string> = { shambler: '#7cb342', sprinter: '#d4e157', brute: '#33691e', mutant: '#8e24aa' };
-  const shape: Record<ZombieType, string> = { shambler: 'Green circle', sprinter: 'Yellow triangle (R)', brute: 'Dark green square (B)', mutant: 'Purple hexagon (M)' };
+  const shape: Record<ZombieType, string> = { shambler: 'Face in a green ring', sprinter: 'Face in a yellow ring (R)', brute: 'Dark green square (B)', mutant: 'Purple hexagon (M)' };
   return (
     <>
       <h3>Zombie types</h3>
       <Table head={['Zombie', 'Looks like', 'Actions', 'Toughness', 'XP']} rows={(Object.keys(ZOMBIE_DEFS) as ZombieType[]).map((t) => [
-        <b key={t} style={{ color: colour[t] }}>{names[t]}</b>, shape[t], ZOMBIE_DEFS[t].actions, ZOMBIE_DEFS[t].toughness, ZOMBIE_DEFS[t].xp,
+        <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><ZombieFace type={t} size={40} /><b style={{ color: colour[t] }}>{names[t]}</b></span>, shape[t], ZOMBIE_DEFS[t].actions, ZOMBIE_DEFS[t].toughness, ZOMBIE_DEFS[t].xp,
       ])} />
       <ul>
         <li><b>Brutes</b> always arrive with two Shamblers, and need a weapon with 2+ damage.</li>
@@ -289,7 +289,7 @@ function Survivors() {
       <p>Each survivor has four abilities that unlock in order: one at the start, and one at each level up.</p>
       {CHARACTERS.map((c) => (
         <div key={c.id} className="rb-char">
-          <div className="rb-charh"><span className="dot lg" style={{ background: hex(SURVIVOR_COLORS[c.id] ?? 0xcccccc) }} /><div><b>{c.name}</b> <span className="dim">{c.role}</span><div className="dim sm">{c.blurb}</div></div></div>
+          <div className="rb-charh"><Portrait id={c.id} size={64} /><div><b>{c.name}</b> <span className="dim">{c.role}</span><div className="dim sm">{c.blurb}</div></div></div>
           <Table head={['Level', 'Ability', 'Effect']} rows={c.ladder.map((a, i) => [['Start', 'Restless', 'Swarming', 'Overrun'][i]!, ABILITY_TEXT[a]?.name ?? a, ABILITY_TEXT[a]?.text ?? ''])} />
         </div>
       ))}

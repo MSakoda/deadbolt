@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ABILITY_TEXT, CHARACTERS, defaultSurvivorsPerPlayer } from '@deadbolt/engine';
-import { SURVIVOR_COLORS } from './Board';
+import { Portrait } from './Portrait';
 import { Rulebook } from './Rulebook';
 
 export interface LobbyResult {
@@ -66,7 +66,7 @@ export function Lobby({ onStart, onResume, onBack }: { onStart(r: LobbyResult): 
           return (
             <div key={r.charId} className={'srow' + (r.on ? '' : ' off')}>
               <input type="checkbox" checked={r.on} onChange={() => setRows(rows.map((x, j) => (j === i ? { ...x, on: !x.on } : x)))} />
-              <span className="dot" style={{ background: '#' + (SURVIVOR_COLORS[c.id] ?? 0xcccccc).toString(16).padStart(6, '0') }} />
+              <Portrait id={c.id} size={34} />
               <button className="link" onClick={() => setOpen(open === c.id ? null : c.id)}>{c.name} &middot; {c.role}</button>
               <select value={r.owner} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, owner: Number(e.target.value) } : x)))}>
                 {players.map((p, k) => <option key={k} value={k}>{p}</option>)}

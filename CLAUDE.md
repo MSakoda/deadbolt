@@ -53,6 +53,7 @@ npm run server      # dev API on :8787, mail printed to console
 
 - `Board.ts`: Pixi `BoardView` (`create`, `update(state, hints, events, instant)`, `zoomBy`, `resetView`). Tweened retained tokens, pan/zoom, hover/tap tooltips.
 - `Game.tsx`: React HUD driven by `legalActions`. With an `online` prop (`online.ts`) reversible actions are previewed locally on the redacted state and queued; any action that rolls dice, draws cards, opens a building or ends the turn flushes the queue to `POST /api/games/:id/actions` as one atomic batch. Redacted decks keep their length with placeholder cards so local dry runs work. Undo stack locks on dice, draws, hidden reveals, building opens, spawn events and end_turn.
+- Dice animation: `dice.ts` pulls attack rolls (`attack` + preceding `reroll` events) out of an event list; `DiceOverlay.tsx` plays them (tumble, hit/miss per die, rerolls, verdict). Toggle in the gear Settings modal, stored in localStorage `deadbolt-settings-v1` (`settings.ts`), defaulting off for prefers-reduced-motion. Attacks are the only dice in the engine; add new roll types to `extractRolls`.
 - `Rulebook.tsx`: tabbed modal (lobby and in-game). Update the prose when rules change.
 - Mobile: layout breakpoint 900px. Test with Playwright using `--use-gl=swiftshader --enable-unsafe-swiftshader --ignore-gpu-blocklist`.
 

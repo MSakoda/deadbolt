@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ABILITY_TEXT, CHARACTER_BY_ID, DANGER_NAMES, ITEMS, LEVEL_XP, abilities, applyAction, danger, edgeBetween,
+  CHARACTER_BY_ID, DANGER_NAMES, ITEMS, applyAction, danger, edgeBetween,
   legalActions, woundCount, getScenario,
 } from '@deadbolt/engine';
 import type { Action, GameEvent, GameState, ZombieType, ZoneId } from '@deadbolt/engine';
-import { BoardView, SURVIVOR_COLORS, type Hints, type HoverTarget } from './Board';
+import { BoardView, type Hints, type HoverTarget } from './Board';
 import { TipBody } from './Tooltip';
 import { weaponLine } from './info';
-import { InventoryModal, SearchModal, CardChip } from './Modals';
+import { InventoryModal, SearchModal } from './Modals';
 import { describeAll, type LogLine } from './log';
 import { save, type Saved } from './persist';
 import { Goal, Legend } from './Legend';
 import { Rulebook } from './Rulebook';
+import { SurvivorCard } from './SurvivorCard';
+import { Portrait } from './Portrait';
+import { DiceOverlay, zoneNameFor } from './DiceOverlay';
+import { extractRolls, type Roll } from './dice';
+import { loadSettings, saveSettings, type Settings } from './settings';
+import { SettingsModal } from './SettingsModal';
 import type { Online } from './online';
 
 const LOCK = new Set([
@@ -27,6 +33,9 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   // Online: reversible steps previewed locally, sent to the server together with the next step that needs its dice or decks.
   const queue = useRef<Action[]>([]);
   const [busy, setBusy] = useState(false);
+  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [showSettings, setShowSettings] = useState(false);
+  const [rolls, setRolls] = useState<Roll[]>([]);
   const [mode, setMode] = useState<Mode>(null);
   const [toast, setToast] = useState('');
   const [inv, setInv] = useState(false);
@@ -129,6 +138,9 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   const latest = useRef({ legal, mode, actor, state, dispatch, prefer });
   latest.current = { legal, mode, actor, state, dispatch, prefer };
 
+  // The lobby page may have been scrolled; open the game at the top, where the board is.
+  useEffect(() => { window.scrollTo(0, 0); }, []);
+
   useEffect(() => {
     let cancelled = false;
     let view: BoardView | null = null;
@@ -161,10 +173,26 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Events the board has not shown yet. While dice are rolling the board is held, so a zombie that
+  // was hit stays on the map until the roll has finished, then the kills play out.
+  const unshown = useRef<GameEvent[]>([]);
   useEffect(() => {
-    board.current?.update(state, hints, events.current);
+    // Attack rolls (mine or, online, other players') play as a dice animation unless it is switched off.
+    const fresh = settings.dice ? extractRolls(events.current) : [];
+    unshown.current.push(...events.current);
     events.current = [];
-  }, [state, hints]);
+    if (fresh.length) setRolls((q) => [...q, ...fresh]);
+    if (rolls.length + fresh.length > 0) return;
+    board.current?.update(state, hints, unshown.current);
+    unshown.current = [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, hints, rolls.length]);
+
+  const changeSettings = (s: Settings) => {
+    setSettings(s);
+    saveSettings(s);
+    if (!s.dice) setRolls([]);
+  };
 
   // A tooltip pinned by a tap goes away on the next touch.
   useEffect(() => {
@@ -182,13 +210,11 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online?.remote]);
 
-  useEffect(() => { logEnd.current?.scrollIntoView({ block: 'end' }); }, [g.log.length]);
+  // Scroll only the log itself; scrollIntoView would also scroll the page and push the board away.
+  useEffect(() => { const el = logEnd.current?.parentElement; if (el) el.scrollTop = el.scrollHeight; }, [g.log.length]);
 
   const has = (type: Action['type']) => legal.some((a) => a.type === type);
   const turn = state.turn;
-  const char = actor ? CHARACTER_BY_ID[actor.charId]! : null;
-  const abilityIds = actor ? [...abilities(actor)] : [];
-  const nextXp = actor && actor.level < 3 ? (LEVEL_XP as readonly number[])[actor.level] : null;
   const reorgCost = turn?.freeReorg ? 'free this time' : '1 action';
 
   const slotButtons = (['0', '1', 'both'] as const).map((k) => {
@@ -209,23 +235,29 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
     );
   });
 
+  // The last living survivor's End turn is what starts the zombie phase.
+  const lastTurn = !!turn && state.turnOrder.slice(state.turnIndex + 1).every((id) => !state.survivors[id]?.alive);
+
   const grants = legal.filter((a): a is Extract<Action, { type: 'grant' }> => a.type === 'grant');
   const zname = (id: string) => getScenario(state.scenarioId).zones.find((z) => z.id === id)?.name ?? id;
 
   return (
     <div className="game">
       {rules && <Rulebook onClose={() => setRules(false)} />}
+      {showSettings && <SettingsModal settings={settings} onChange={changeSettings} onClose={() => setShowSettings(false)} />}
       <div className="boardwrap">
         <div ref={host} className="board" />
-        <div className="topbar">
+        <div className="hud">
           <b>Round {state.round}</b>
           <span>Danger: <b className={'danger d' + danger(state)}>{DANGER_NAMES[danger(state)]}</b></span>
           <span>Zombies: {state.zombies.length}</span>
           <span className={state.team.keys ? 'ok' : 'dim'}>Keys {state.team.keys ? '✓' : '—'}</span>
           <span className={state.team.fuel ? 'ok' : 'dim'}>Fuel {state.team.fuel ? '✓' : '—'}</span>
-          <span className="grow" />
+        </div>
+        <div className="hudbtns">
           <button onClick={() => setRules(true)}>Rulebook</button>
           {online?.topExtra}
+          <button onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings">&#9881;</button>
           <button onClick={() => { if (online || confirm('Leave this game? It will be lost.')) onExit(); }}>{online ? 'Games' : 'Quit'}</button>
         </div>
         <div className="zoombtns">
@@ -233,6 +265,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
           <button onClick={() => board.current?.zoomBy(1 / 1.3)} aria-label="zoom out">&minus;</button>
           <button onClick={() => board.current?.resetView()} aria-label="reset view">&#8634;</button>
         </div>
+        <DiceOverlay queue={rolls} zoneName={zoneNameFor(state.scenarioId)} onDone={() => setRolls((q) => q.slice(1))} />
         {mode && <div className="banner">Pick a red zone to attack. <button onClick={() => setMode(null)}>Cancel</button></div>}
         {toast && <div className="toast" onClick={() => setToast('')}>{toast}</div>}
         {state.status !== 'active' && (
@@ -265,39 +298,10 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
 
       <aside className="side">
         <Goal state={state} />
-        {actor && char && turn && (
-          <div className="card">
-            <div className="who">
-              <span className="dot lg" style={{ background: '#' + (SURVIVOR_COLORS[actor.charId] ?? 0xcccccc).toString(16).padStart(6, '0') }} />
-              <div>
-                <b>{char.name}</b> <span className="dim">{char.role}</span>
-                <div className="dim">{actor ? ownerName(actor.owner) : ''}&rsquo;s turn &middot; level {actor.level} &middot; {actor.xp}{nextXp ? `/${nextXp}` : ''} XP &middot; in {zname(actor.zone)}</div>
-              </div>
-            </div>
-            <div className="pips">
-              {Array.from({ length: Math.max(turn.actionsLeft, 0) }, (_, i) => <span key={i} className="pip" />)}
-              <span className="dim"> {turn.actionsLeft} action{turn.actionsLeft === 1 ? '' : 's'}</span>
-              {turn.free.move > 0 && <span className="tag">+{turn.free.move} free move</span>}
-              {turn.free.melee > 0 && <span className="tag">+{turn.free.melee} free melee</span>}
-              {woundCount(actor) > 0 && <span className="tag bad">{woundCount(actor)} wound{woundCount(actor) > 1 ? 's' : ''}</span>}
-            </div>
-            <div className="inv">
-              {actor.slots.map((c, i) => (
-                <div key={i} className="slot">
-                  <small>{i === 0 ? 'L hand' : i === 1 ? 'R hand' : `pack ${i - 1}`}</small>
-                  <CardChip card={c} small />
-                </div>
-              ))}
-            </div>
-            <details>
-              <summary>Abilities</summary>
-              {abilityIds.map((a) => <div key={a} className="ab"><b>{ABILITY_TEXT[a]?.name}</b> {ABILITY_TEXT[a]?.text}</div>)}
-            </details>
-          </div>
-        )}
+        {actor && turn && <SurvivorCard actor={actor} turn={turn} owner={ownerName(actor.owner)} zone={zname(actor.zone)} />}
 
         {actor && !canAct && state.status === 'active' && (
-          <div className="card waiting">Waiting for <b>{ownerName(actor.owner)}</b> ({char?.name.split(' ')[0]}). The board updates by itself.</div>
+          <div className="card waiting">Waiting for <b>{ownerName(actor.owner)}</b> ({CHARACTER_BY_ID[actor.charId]?.name.split(" ")[0]}). The board updates by itself.</div>
         )}
         {actor && canAct && state.status === 'active' && !state.pending && (
           <div className="card actions">
@@ -340,7 +344,11 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
             </label>
             <div className="btns end">
               <button onClick={doUndo} disabled={undo.length === 0} title="Dice rolls and card draws lock in">Undo</button>
-              <button className="primary" onClick={() => dispatch({ type: 'end_turn' })}>End turn</button>
+              <button
+                className={'primary' + (lastTurn ? ' zphase' : '')}
+                onClick={() => dispatch({ type: 'end_turn' })}
+                title={lastTurn ? 'You are the last survivor to act. Ending the turn runs the zombie phase.' : undefined}
+              >{lastTurn ? 'End turn: zombie phase' : 'End turn'}</button>
             </div>
           </div>
         )}
@@ -350,7 +358,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
             const v = state.survivors[id]!;
             return (
               <div key={id} className={'rrow' + (v.alive ? '' : ' dead') + (turn?.survivorId === id ? ' cur' : '')}>
-                <span className="dot" style={{ background: '#' + (SURVIVOR_COLORS[id] ?? 0xcccccc).toString(16).padStart(6, '0') }} />
+                <Portrait id={id} size={26} />
                 <span>{CHARACTER_BY_ID[id]?.name.split(' ')[0]}</span>
                 <span className="dim">L{v.level} · {ownerName(v.owner)}</span>
                 <span className="grow" />

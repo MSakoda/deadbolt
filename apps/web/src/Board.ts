@@ -1,5 +1,6 @@
-import { Application, Circle, Container, Graphics, Rectangle, Text } from 'pixi.js';
+import { Application, Assets, Circle, Container, Graphics, Rectangle, Sprite, Text, type Texture } from 'pixi.js';
 import { CHARACTER_BY_ID, getScenario } from '@deadbolt/engine';
+import { portraitUrl, zombieUrl, ZOMBIE_ART } from './art';
 import type { GameEvent, GameState, ZombieType, ZoneId } from '@deadbolt/engine';
 
 export const CELL_W = 190;
@@ -37,6 +38,22 @@ function label(text: string, size: number, fill: number, bold = false): Text {
   return new Text({ text, style: { fontFamily: 'system-ui, sans-serif', fontSize: size, fill, fontWeight: bold ? '700' : '400' } });
 }
 
+/** Zoom is relative to the fitted view; below 1 shows the map smaller than the screen. */
+const MIN_ZOOM = 0.5;
+
+const portraits = new Map<string, Texture>();
+
+async function loadPortraits(): Promise<void> {
+  const jobs = [
+    ...Object.keys(SURVIVOR_COLORS).map((id) => [id, portraitUrl(id)] as const),
+    ...ZOMBIE_ART.map((t) => ['z:' + t, zombieUrl(t)] as const),
+  ];
+  await Promise.all(jobs.map(async ([key, url]) => {
+    if (portraits.has(key)) return;
+    try { portraits.set(key, await Assets.load<Texture>(url)); } catch { /* falls back to the plain token */ }
+  }));
+}
+
 export class BoardView {
   private app = new Application();
   private world = new Container();
@@ -71,6 +88,7 @@ export class BoardView {
   private async init(host: HTMLElement, cb: BoardCallbacks, state: GameState): Promise<void> {
     this.cb = cb;
     this.lastState = state;
+    await loadPortraits();
     await this.app.init({
       background: 0x12151b, antialias: true, resizeTo: host,
       resolution: window.devicePixelRatio || 1, autoDensity: true,
@@ -157,9 +175,13 @@ export class BoardView {
     const w = this.app.screen.width, h = this.app.screen.height;
     const s = this.base * this.zoom;
     const sw = this.worldW * s, sh = this.worldH * s;
+    // The map can be dragged a good way past its edges (into empty space), so any room can be
+    // moved clear of the floating HUD. It cannot be lost entirely.
     const clamp = (v: number, size: number, view: number) => {
-      if (size <= view) return (view - size) / 2;
-      return Math.min(0, Math.max(view - size, v));
+      const slack = Math.max(120, view * 0.35);
+      const lo = size <= view ? (view - size) / 2 - slack : view - size - slack;
+      const hi = size <= view ? (view - size) / 2 + slack : slack;
+      return Math.min(hi, Math.max(lo, v));
     };
     const x = clamp(this.baseX + this.panX, sw, w);
     const y = clamp(this.baseY + this.panY, sh, h);
@@ -171,7 +193,7 @@ export class BoardView {
 
   /** Zoom by `f` keeping the screen point (px, py) still. */
   zoomBy(f: number, px = this.app.screen.width / 2, py = this.app.screen.height / 2): void {
-    const z = Math.min(4, Math.max(1, this.zoom * f));
+    const z = Math.min(4, Math.max(MIN_ZOOM, this.zoom * f));
     const s1 = this.base * this.zoom, s2 = this.base * z;
     const wx = (px - this.world.position.x) / s1, wy = (py - this.world.position.y) / s1;
     this.zoom = z;
@@ -241,12 +263,14 @@ export class BoardView {
   private fit = (): void => {
     if (!this.app.renderer) return;
     const w = this.app.screen.width;
-    const h = this.app.screen.height;
+    // Leave room for the floating HUD along the top.
+    const top = w < 700 ? 64 : 52;
+    const h = this.app.screen.height - top;
     if (!this.worldW) return;
     const s = Math.min(w / this.worldW, h / this.worldH);
     this.base = s;
     this.baseX = (w - this.worldW * s) / 2;
-    this.baseY = (h - this.worldH * s) / 2;
+    this.baseY = top + (h - this.worldH * s) / 2;
     this.applyView();
   };
 
@@ -360,14 +384,28 @@ export class BoardView {
     const ring = new Graphics().circle(0, 0, 21).stroke({ width: 3, color: 0xffffff });
     ring.label = 'ring';
     ring.visible = false;
-    const body = new Graphics().circle(0, 0, 15).fill(SURVIVOR_COLORS[charId] ?? 0xcccccc).stroke({ width: 2, color: 0x10131a });
+    const color = SURVIVOR_COLORS[charId] ?? 0xcccccc;
+    const body = new Graphics().circle(0, 0, 17).fill(color);
     const t = label((CHARACTER_BY_ID[charId]?.name ?? id).slice(0, 1), 15, 0x10131a, true);
     t.anchor.set(0.5);
     const badge = label('', 10, 0xff5252, true);
     badge.label = 'badge';
     badge.anchor.set(0.5, 0);
     badge.position.set(0, 14);
-    c.addChild(ring, body, t, badge);
+    c.addChild(ring, body, t);
+    const tex = portraits.get(charId);
+    if (tex) {
+      // Headshot cropped to a circle, biased up so the face is centred.
+      const photo = new Sprite(tex);
+      photo.anchor.set(0.5, 0.38);
+      photo.scale.set(31 / Math.min(tex.width, tex.height));
+      const mask = new Graphics().circle(0, 0, 15.5).fill(0xffffff);
+      photo.mask = mask;
+      c.addChild(photo, mask);
+      t.visible = false;
+    }
+    const edge = new Graphics().circle(0, 0, 16).stroke({ width: 3, color });
+    c.addChild(edge, badge);
     c.hitArea = new Circle(0, 0, 18);
     this.hoverable(c, () => ({ kind: 'survivor', id }));
     this.tokenLayer.addChild(c);
@@ -378,6 +416,30 @@ export class BoardView {
     const c = new Container();
     const g = new Graphics();
     const col = ZOMBIE_COLORS[type];
+    const tex = portraits.get('z:' + type);
+    if (tex) {
+      // Face cropped to a circle with a ring in the zombie's colour; a letter chip keeps the type readable without colour.
+      const ring = new Graphics().circle(0, 0, 15).fill(col);
+      const photo = new Sprite(tex);
+      photo.anchor.set(0.5, 0.42);
+      photo.scale.set(26 / Math.min(tex.width, tex.height));
+      const mask = new Graphics().circle(0, 0, 12.5).fill(0xffffff);
+      photo.mask = mask;
+      const edge = new Graphics().circle(0, 0, 14).stroke({ width: 3, color: col });
+      const rim = new Graphics().circle(0, 0, 15.5).stroke({ width: 1.5, color: 0x0d1008 });
+      c.addChild(ring, photo, mask, edge, rim);
+      if (type !== 'shambler') {
+        const chip = new Graphics().circle(10, 10, 6).fill(col).stroke({ width: 1.5, color: 0x0d1008 });
+        const t = label(type === 'sprinter' ? 'R' : type === 'brute' ? 'B' : 'M', 9, 0x101010, true);
+        t.anchor.set(0.5);
+        t.position.set(10, 10);
+        c.addChild(chip, t);
+      }
+      c.hitArea = new Circle(0, 0, 16);
+      this.hoverable(c, () => ({ kind: 'zombie', id }));
+      this.tokenLayer.addChild(c);
+      return { c, x: 0, y: 0, dying: false, spawn: 0 };
+    }
     if (type === 'shambler') g.circle(0, 0, 11).fill(col);
     else if (type === 'sprinter') g.poly([0, -13, 12, 10, -12, 10]).fill(col);
     else if (type === 'brute') g.roundRect(-14, -14, 28, 28, 5).fill(col);

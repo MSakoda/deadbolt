@@ -1,4 +1,5 @@
 import { CHARACTER_BY_ID, ABILITY_TEXT, ITEMS, LEVEL_XP, ZOMBIE_DEFS, abilities, getScenario, woundCount } from '@deadbolt/engine';
+import { Portrait, ZombieFace } from './Portrait';
 import type { GameState } from '@deadbolt/engine';
 import type { HoverTarget } from './Board';
 import { killers, weaponInfo, weaponLine } from './info';
@@ -26,7 +27,7 @@ export function TipBody({ state, t, ownerName }: { state: GameState; t: HoverTar
     else turnLine = `Still to act this round (turn ${idx + 1} of ${state.turnOrder.length}).`;
     return (
       <>
-        <div className="tip-h"><b>{ch.name}</b> <span className="dim">{ch.role} · {ownerName(sv.owner)}</span></div>
+        <div className="tip-h tip-who"><Portrait id={sv.charId} size={44} /><div><b>{ch.name}</b><div className="dim">{ch.role} · {ownerName(sv.owner)}</div></div></div>
         <div className={w ? 'bad' : ''}>Health: {sv.alive ? `${2 - w} of 2 (${w} wound${w === 1 ? '' : 's'})` : 'down'}</div>
         <div>{turnLine}</div>
         <div>Level {sv.level} · {sv.xp}{next ? `/${next}` : ''} XP · in {zn(sv.zone)}</div>
@@ -52,7 +53,7 @@ export function TipBody({ state, t, ownerName }: { state: GameState; t: HoverTar
     const hands = actor ? [actor.slots[0], actor.slots[1]].filter(Boolean) : [];
     return (
       <>
-        <div className="tip-h"><b>{d.name}</b> <span className="dim">{names[z.type]} in {zn(z.zone)}</span></div>
+        <div className="tip-h tip-who"><ZombieFace type={z.type} size={44} /><div><b>{d.name}</b><div className="dim">{names[z.type]} in {zn(z.zone)}</div></div></div>
         <div>Health: {d.toughness === 1 ? 'dies to any single hit' : `toughness ${d.toughness}: one hit must deal ${d.toughness}+ damage (damage does not add up between hits)`}</div>
         <div>Acts {d.actions}× per round, always hits when it bites. Worth {d.xp} XP.</div>
         <div className="tip-s">What kills it</div>

@@ -6,6 +6,7 @@ import { Game } from './Game';
 import { describeAll, type LogLine } from './log';
 import type { Online } from './online';
 import { survivorNames } from './OnlineApp';
+import { Portrait } from './Portrait';
 
 const POLL_MS = 10_000;
 
@@ -112,7 +113,7 @@ function LobbyScreen({ view, me, onExit, refresh }: { view: GameView; me: Me['us
             {m.role === 'host' && <span className="tag">host</span>}
             {m.email && <span className="dim">{m.email}</span>}
             <span className="grow" />
-            <span className="dim">{survivorNames(m.charIds)}</span>
+            {m.charIds.map((c) => <Portrait key={c} id={c} size={30} />)}<span className="dim">{survivorNames(m.charIds)}</span>
             <span className={m.status === 'joined' ? 'ok' : 'dim'}>{m.status === 'joined' ? 'joined' : 'invited'}</span>
           </div>
         ))}
