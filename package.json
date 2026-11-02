@@ -2,12 +2,18 @@
   "name": "deadbolt",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "test": "npm test -w @deadbolt/engine",
     "typecheck": "npm run typecheck -w @deadbolt/engine",
     "sim": "npm run sim -w @deadbolt/engine",
     "dev": "npm run dev -w @deadbolt/web",
-    "build": "npm run build -w @deadbolt/web"
+    "build": "npm run build -w @deadbolt/web",
+    "server": "npm run dev -w @deadbolt/server",
+    "test:server": "npm test -w @deadbolt/server",
+    "typecheck:server": "npm run typecheck -w @deadbolt/server"
   }
 }

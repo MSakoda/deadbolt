@@ -8,7 +8,8 @@ npm workspaces (`packages/*`, `apps/*`):
 
 - `packages/engine` (`@deadbolt/engine`): pure TypeScript rules engine. No I/O, no DOM. Deterministic and replayable.
 - `apps/web` (`@deadbolt/web`): Vite + React 18 + PixiJS 8 client. Currently hot-seat (one shared screen), autosaved to localStorage key `deadbolt-hotseat-v1`.
-- Planned: `apps/server` (Fastify), Neon Postgres, Resend email, Render free hosting with an external cron ping.
+- `apps/server` (`@deadbolt/server`): Fastify API. `service.ts` holds all logic (auth, games, turns, host tools, email jobs); `app.ts` is thin routes; `store.ts` is a generic doc store (MemoryStore + optional JSON file); `mail.ts` is a console mailer. Games are seed + log, state cached on the game doc; clients get `redact()`ed state. Run: `npm run server` (env PORT, BASE_URL, DATA_FILE, JOB_SECRET).
+- Planned: Neon Postgres store, Resend mailer, Render free hosting with an external cron hitting `POST /jobs/run` (header `x-job-secret`).
 
 ## Commands
 
@@ -20,6 +21,9 @@ npx tsc -p apps/web/tsconfig.json   # web typecheck
 npm run dev         # web dev server
 npm run build       # web production build
 npm run sim         # bot simulations (balance numbers)
+npm run test:server # server tests (vitest)
+npm run typecheck:server
+npm run server      # dev API on :8787, mail printed to console
 ```
 
 ## Engine contract (do not break)
@@ -56,7 +60,7 @@ npm run sim         # bot simulations (balance numbers)
 
 1. Engine: done.
 2. Hot-seat web client with legend, goal panel, tooltips, hit chances, mobile pan/zoom, rulebook: done.
-3. Server (not started): accounts with magic-link login, game storage as seed + action log (re-run the engine to rebuild state), turn emails via Resend, nudges and digest, host tools, hosting. Plan: start with emails logged to the console, add Resend later. Needs the user to create a Resend account and pick hosting.
+3. Server: slice 1 done (magic-link auth, invites, lobby/start, per-action validation by the engine, recap, nudges + host prompt, host skip/handover/transfer, job runner, 23 tests; console mail, memory store). Daily digest done (8 AM in the user's `tz`, set via PATCH /me, once per local day, only if others acted). Remaining: Postgres store (Neon), Resend mailer, web client talking to the API (replace hot-seat; search/dice resolve on the server, client undo only before random steps), deploy. Needs the user to create Neon and Resend accounts and pick hosting.
 4. Polish: fuller phone layout, bigger bite/kill popups, sound.
 
 ## Conventions
