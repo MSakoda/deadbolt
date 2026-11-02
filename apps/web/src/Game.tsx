@@ -11,6 +11,7 @@ import { InventoryModal, SearchModal, CardChip } from './Modals';
 import { describeAll, type LogLine } from './log';
 import { save, type Saved } from './persist';
 import { Goal, Legend } from './Legend';
+import { Rulebook } from './Rulebook';
 
 const LOCK = new Set([
   'attack', 'molotov', 'cards_drawn', 'alarm', 'reroll', 'building_opened', 'objective_taken', 'spawn_card', 'zombie_phase_start',
@@ -25,6 +26,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
   const [mode, setMode] = useState<Mode>(null);
   const [toast, setToast] = useState('');
   const [inv, setInv] = useState(false);
+  const [rules, setRules] = useState(false);
   const [bigLog, setBigLog] = useState(false);
   const [hover, setHover] = useState<{ t: HoverTarget; x: number; y: number; sticky?: boolean } | null>(null);
   const [prefer, setPrefer] = useState<ZombieType | ''>('');
@@ -164,6 +166,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
 
   return (
     <div className="game">
+      {rules && <Rulebook onClose={() => setRules(false)} />}
       <div className="boardwrap">
         <div ref={host} className="board" />
         <div className="topbar">
@@ -173,6 +176,7 @@ export function Game({ initial, onExit }: { initial: Saved; onExit(): void }) {
           <span className={state.team.keys ? 'ok' : 'dim'}>Keys {state.team.keys ? '✓' : '—'}</span>
           <span className={state.team.fuel ? 'ok' : 'dim'}>Fuel {state.team.fuel ? '✓' : '—'}</span>
           <span className="grow" />
+          <button onClick={() => setRules(true)}>Rulebook</button>
           <button onClick={() => { if (confirm('Leave this game? It will be lost.')) onExit(); }}>Quit</button>
         </div>
         <div className="zoombtns">

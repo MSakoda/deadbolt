@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ABILITY_TEXT, CHARACTERS, defaultSurvivorsPerPlayer } from '@deadbolt/engine';
 import { SURVIVOR_COLORS } from './Board';
+import { Rulebook } from './Rulebook';
 
 export interface LobbyResult {
   seed: number;
@@ -17,6 +18,7 @@ export function Lobby({ onStart, onResume }: { onStart(r: LobbyResult): void; on
   );
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e9));
   const [open, setOpen] = useState<string | null>(null);
+  const [rules, setRules] = useState(false);
 
   const chosen = rows.filter((r) => r.on);
   const valid = chosen.length >= 1 && chosen.length <= 6 && players.length >= 1;
@@ -90,9 +92,11 @@ export function Lobby({ onStart, onResume }: { onStart(r: LobbyResult): void; on
           seed, players,
           survivors: chosen.map((r) => ({ charId: r.charId, owner: String(r.owner) })),
         })}>Start game</button>
+        <button onClick={() => setRules(true)}>Rulebook</button>
         {onResume && <button onClick={onResume}>Resume saved game</button>}
         {!valid && <span className="err">Choose between 1 and 6 survivors.</span>}
       </section>
+      {rules && <Rulebook onClose={() => setRules(false)} />}
     </div>
   );
 }
