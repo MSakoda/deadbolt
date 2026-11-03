@@ -399,7 +399,12 @@ export class Service {
         skipped += 1;
         continue;
       }
-      await this.sendJob(j, g);
+      try {
+        await this.sendJob(j, g);
+      } catch (e) {
+        console.error(`email job ${j.type} for game ${j.gameId} failed, will retry:`, (e as Error).message);
+        continue;
+      }
       await this.store.put('jobs', key, { ...j, sentAt: now });
       sent += 1;
     }

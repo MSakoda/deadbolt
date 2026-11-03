@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { applyAction, legalActions, type Action } from '@deadbolt/engine';
 import { buildApp } from '../src/app';
-import { ConsoleMailer } from '../src/mail';
+import { ConsoleMailer, ResendMailer } from '../src/mail';
 import { LOGIN_TTL, Service } from '../src/service';
 import { MemoryStore } from '../src/store';
 
@@ -428,5 +428,41 @@ describe('serving the web app', () => {
     expect(missing.statusCode).toBe(404);
     expect(missing.body).not.toContain('deadbolt app');
     expect((await page('/health')).json()).toEqual({ ok: true });
+  });
+});
+
+describe('Resend mailer', () => {
+  const mail = { to: 'b@x.com', subject: 'Hi', text: 'secret link' };
+
+  it('posts the message to Resend with the key and sender', async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const ok = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response('{"id":"1"}', { status: 200 }); }) as unknown as typeof fetch;
+    await new ResendMailer('re_key', 'Deadbolt <hi@d.test>', ok).send(mail);
+    expect(calls[0]!.url).toBe('https://api.resend.com/emails');
+    expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe('Bearer re_key');
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ from: 'Deadbolt <hi@d.test>', to: ['b@x.com'], subject: 'Hi', text: 'secret link' });
+  });
+
+  it('fails with a 502 and never logs the mail body', async () => {
+    const logged: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => { logged.push(a.join(' ')); };
+    try {
+      const bad = (async () => new Response('{"message":"You can only send testing emails to your own email address"}', { status: 403 })) as unknown as typeof fetch;
+      await expect(new ResendMailer('k', 'f', bad).send(mail)).rejects.toMatchObject({ status: 502 });
+      expect(logged.join('\n')).toContain('403');
+      expect(logged.join('\n')).not.toContain('secret link');
+    } finally { console.error = orig; }
+  });
+
+  it('keeps a reminder queued when sending fails, and sends it on a later run', async () => {
+    await startedGame();
+    const real = (service as unknown as { mailer: unknown }).mailer;
+    (service as unknown as { mailer: unknown }).mailer = { send: async () => { throw new Error('boom'); } };
+    const quiet = console.error;
+    console.error = () => undefined;
+    try { expect(await service.runJobs()).toEqual({ sent: 0, skipped: 0 }); } finally { console.error = quiet; }
+    (service as unknown as { mailer: unknown }).mailer = real;
+    expect((await service.runJobs()).sent).toBeGreaterThan(0);
   });
 });
