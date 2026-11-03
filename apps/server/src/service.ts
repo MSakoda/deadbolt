@@ -45,6 +45,13 @@ const pad = (n: number) => String(n).padStart(14, '0');
 export const normEmail = (e: string) => e.trim().toLowerCase();
 
 const DIGEST_HOUR = 8;
+
+/** Events a replay needs to move pieces around; dice, decks and item shuffling are left out. */
+const REPLAY_EVENTS = new Set([
+  'moved', 'door_opened', 'building_opened', 'zombie_moved', 'zombie_spawned', 'zombie_killed', 'zombie_attacked',
+  'survivor_died', 'objective_taken', 'zombie_phase_start', 'zombie_step', 'surge_activation', 'turn_started',
+  'round_started', 'wounded', 'game_won', 'game_lost',
+]);
 /** A valid card id, so client-side dry runs of the zombie phase do not throw. */
 const SPAWN_PLACEHOLDER = SPAWN_CARDS[0]!.id;
 
@@ -240,7 +247,9 @@ export class Service {
     const name = (input.name ?? '').trim().slice(0, 60);
     if (!name) throw new HttpError(400, 'game name required');
     const per = input.survivorsPerPlayer ?? 1;
-    const others = (input.players ?? []).map((p) => ({ ...p, email: normEmail(p.email) })).filter((p) => p.email !== host.email);
+    const invited = (input.players ?? []).map((p) => ({ ...p, email: normEmail(p.email) }));
+    if (invited.some((p) => p.email === host.email)) throw new HttpError(400, 'you are added automatically; remove your own email from the invites');
+    const others = invited;
     // The host is always seat 1; other players follow in the order given.
     const emails = [host.email, ...others.map((p) => p.email)];
     if (new Set(emails).size !== emails.length) throw new HttpError(400, 'duplicate player');
@@ -304,6 +313,7 @@ export class Service {
     return this.lock(gameId, async () => {
       const g = await this.getGame(gameId);
       const m = this.requireMember(g, userId);
+      if (g.status === 'abandoned') throw new HttpError(409, 'this game was cancelled');
       m.status = 'joined';
       await this.saveGame(g);
       return g;
@@ -346,6 +356,7 @@ export class Service {
     if (!st) return;
     if (st.status !== 'active') {
       g.status = st.status;
+      g.replayToken ??= randomBytes(16).toString('base64url');
       g.activeOwner = null;
       g.activeSince = null;
       await this.saveGame(g);
@@ -409,7 +420,7 @@ export class Service {
       if (hour < DIGEST_HOUR || u.digest?.date === date) continue;
       const seqs = { ...(u.digest?.seqs ?? {}) };
       const lines: string[] = [];
-      for (const g of games.filter((x) => x.members.some((m) => m.userId === u.id))) {
+      for (const g of games.filter((x) => x.status !== 'abandoned' && x.members.some((m) => m.userId === u.id))) {
         const log = (await this.log(g.id, seqs[g.id] ?? 0)).filter((e) => e.actor !== u.id);
         seqs[g.id] = g.seq;
         const acts = log.filter((e) => e.kind === 'action').length;
@@ -474,6 +485,7 @@ export class Service {
       yourTurn: g.activeOwner === userId,
       activeSince: g.activeSince,
       updated: g.seq,
+      replay: g.replayToken,
     }));
   }
 
@@ -494,6 +506,7 @@ export class Service {
         activeSince: g.activeSince,
         seq: g.seq,
         settings: g.settings,
+        replay: g.replayToken,
         members: g.members.map((m) => ({
           userId: m.userId,
           name: users.get(m.userId)?.name,
@@ -560,10 +573,38 @@ export class Service {
       return {
         events: done.flatMap((d) => d.events),
         seq: g.seq,
+        replay: g.replayToken,
         state: redact(st, userId),
         legal: this.legalFor(g, userId),
       };
     });
+  }
+
+  /**
+   * A finished game's replay for anyone holding the link: the starting position, every step's board
+   * events, and the final state. Shows display names only (never emails) and no seed or deck order.
+   */
+  async replay(token: string) {
+    const g = (await this.store.list<Game>('games')).find((x) => x.replayToken && x.replayToken === token);
+    if (!g || !g.state || (g.status !== 'won' && g.status !== 'lost')) throw new HttpError(404, 'no such replay');
+    const names = new Map<string, string>();
+    for (const m of g.members) names.set(m.userId, (await this.getUser(m.userId)).name);
+    const initial = createGame({
+      scenarioId: g.scenarioId,
+      seed: g.seed,
+      survivors: g.members.flatMap((m) => m.charIds.map((charId) => ({ charId, owner: m.userId }))),
+    }).state;
+    const steps = (await this.log(g.id))
+      .map((e) => ({ events: e.events.filter((ev) => REPLAY_EVENTS.has(ev.type)) }))
+      .filter((st) => st.events.length > 0);
+    return {
+      title: g.name,
+      outcome: g.status,
+      players: g.members.map((m) => ({ name: names.get(m.userId), charIds: m.charIds })),
+      initial: redact(initial, ''),
+      steps,
+      final: redact(g.state, ''),
+    };
   }
 
   // ---- host controls ----
@@ -609,6 +650,26 @@ export class Service {
       await this.append(g, hostId, 'host', { type: 'handover', charId, from: from?.userId, to: toUserId }, []);
       await this.afterChange(g);
       await this.notifyAll(g, `[${g.name}] A survivor changed hands`, `The host handed a survivor to another player in "${g.name}".\n\n${this.baseUrl}/games/${g.id}\n`);
+      return { seq: g.seq };
+    });
+  }
+
+  /** The host ends the game for everyone. Allowed in the lobby and mid-game; ended games are left alone. */
+  async cancelGame(gameId: string, hostId: string) {
+    return this.lock(gameId, async () => {
+      const g = await this.getGame(gameId);
+      this.requireHost(g, hostId);
+      if (g.status !== 'lobby' && g.status !== 'active') throw new HttpError(409, 'game already ended');
+      g.status = 'abandoned';
+      g.activeOwner = null;
+      g.activeSince = null;
+      await this.append(g, hostId, 'host', { type: 'cancel' }, []);
+      await this.saveGame(g);
+      for (const m of g.members) {
+        if (m.userId === hostId) continue;
+        const u = await this.getUser(m.userId);
+        await this.mailer.send({ to: u.email, subject: `[${g.name}] The game was cancelled`, text: `The host cancelled "${g.name}". No more turns will be taken.\n` });
+      }
       return { seq: g.seq };
     });
   }

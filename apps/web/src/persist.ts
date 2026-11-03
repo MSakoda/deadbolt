@@ -1,10 +1,13 @@
 import type { GameState } from '@deadbolt/engine';
+import type { ReplayStep } from './replayFrames';
 import type { LogLine } from './log';
 
 export interface Saved {
   state: GameState;
   log: LogLine[];
   players: string[];
+  /** Starting position and every step so far, for the end-of-game replay. Absent in older saves. */
+  replay?: { initial: GameState; steps: ReplayStep[] };
 }
 const KEY = 'deadbolt-hotseat-v1';
 

@@ -10,5 +10,7 @@ export interface Online {
   send(actions: Action[]): Promise<{ state: GameState; events: GameEvent[] } | { error: string }>;
   /** Newer server state pushed by polling (bump identity to apply). */
   remote?: { state: GameState; events: GameEvent[]; lines: LogLine[] };
+  /** Link token for the replay once the game has ended. */
+  replayToken?: string;
   topExtra?: ReactNode;
 }

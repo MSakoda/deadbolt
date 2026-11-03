@@ -18,6 +18,8 @@ import { DiceOverlay, zoneNameFor } from './DiceOverlay';
 import { extractRolls, type Roll } from './dice';
 import { loadSettings, saveSettings, type Settings } from './settings';
 import { SettingsModal } from './SettingsModal';
+import { Replay, ReplayFromToken } from './Replay';
+import { applyToDisplay, namesFor, planPlayback, type Banner, type PhasePlan } from './phase';
 import type { Online } from './online';
 
 const LOCK = new Set([
@@ -36,6 +38,13 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
   const [rolls, setRolls] = useState<Roll[]>([]);
+  const [showReplay, setShowReplay] = useState(false);
+  const [banner, setBanner] = useState<Banner | null>(null);
+  // True while the zombie phase plays back; the board and the controls wait for it.
+  const [playing, setPlaying] = useState(false);
+  const playingRef = useRef(false);
+  const skipPhase = useRef<() => void>(() => undefined);
+  const shown = useRef<GameState>(initial.state);
   const [mode, setMode] = useState<Mode>(null);
   const [toast, setToast] = useState('');
   const [inv, setInv] = useState(false);
@@ -52,7 +61,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   const actor = state.turn ? state.survivors[state.turn.survivorId]! : null;
   const canAct = !online || (!!actor && actor.owner === online.myId);
   const ownerName = (o: string) => (online ? online.names[o] : g.players[Number(o)]) ?? o;
-  const legal = useMemo<Action[]>(() => (actor && canAct && !busy && state.status === 'active' ? legalActions(state, actor.owner) : []), [state, actor, canAct, busy]);
+  const legal = useMemo<Action[]>(() => (actor && canAct && !busy && !playing && state.status === 'active' ? legalActions(state, actor.owner) : []), [state, actor, canAct, busy, playing]);
 
   const attacksFor = (slot: 0 | 1 | 'both') =>
     legal.filter((a): a is Extract<Action, { type: 'attack' }> => a.type === 'attack' && a.slot === slot);
@@ -96,7 +105,10 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
     const lock = a.type === 'end_turn' || r.events.some((e) => LOCK.has(e.type));
     setUndo((u) => (lock ? [] : [...u, { state, logLen: g.log.length }]));
     events.current = r.events;
-    const ng: Saved = { ...g, state: r.state, log: [...g.log, ...lines] };
+    const ng: Saved = {
+      ...g, state: r.state, log: [...g.log, ...lines],
+      replay: g.replay && { initial: g.replay.initial, steps: [...g.replay.steps, { events: r.events }] },
+    };
     setG(ng);
     save(ng);
     setMode(null);
@@ -126,7 +138,10 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
     const u = undo[undo.length - 1];
     if (!u) return;
     events.current = [];
-    const ng: Saved = { ...g, state: u.state, log: g.log.slice(0, u.logLen) };
+    const ng: Saved = {
+      ...g, state: u.state, log: g.log.slice(0, u.logLen),
+      replay: g.replay && { initial: g.replay.initial, steps: g.replay.steps.slice(0, -1) },
+    };
     queue.current.pop();
     setUndo(undo.slice(0, -1));
     setG(ng);
@@ -168,6 +183,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
       view = v;
       board.current = v;
       v.update(latest.current.state, hints, [], true);
+      shown.current = latest.current.state;
     });
     return () => { cancelled = true; view?.destroy(); board.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -182,16 +198,49 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
     unshown.current.push(...events.current);
     events.current = [];
     if (fresh.length) setRolls((q) => [...q, ...fresh]);
-    if (rolls.length + fresh.length > 0) return;
+    if (rolls.length + fresh.length > 0 || playingRef.current) return;
+    // Surprise spawns (alarm, a building filling up) always get an alert; the zombie phase follows its setting.
+    const plan = planPlayback(unshown.current, namesFor(state.scenarioId), settings.zombies);
+    unshown.current = plan ? [] : unshown.current;
+    if (plan) { void playPhase(plan); return; }
     board.current?.update(state, hints, unshown.current);
+    shown.current = state;
     unshown.current = [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, hints, rolls.length]);
+  }, [state, hints, rolls.length, playing]);
+
+  /** Plays the zombie phase beat by beat on the board, starting from what the board currently shows. */
+  const playPhase = async (plan: PhasePlan) => {
+    playingRef.current = true;
+    setPlaying(true);
+    let skipped = false;
+    let release: (() => void) | null = null;
+    skipPhase.current = () => { skipped = true; release?.(); };
+    const wait = (ms: number) => new Promise<void>((res) => {
+      const t = setTimeout(res, ms);
+      release = () => { clearTimeout(t); res(); };
+    });
+    const show = (evs: GameEvent[]) => {
+      shown.current = applyToDisplay(shown.current, evs);
+      board.current?.update(shown.current, { zones: {}, doors: {} }, evs);
+    };
+    show(plan.pre);
+    for (const beat of plan.beats) {
+      if (skipped) break;
+      if (beat.banner) setBanner(beat.banner);
+      show(beat.events);
+      await wait(beat.wait);
+    }
+    setBanner(null);
+    playingRef.current = false;
+    setPlaying(false); // the effect now draws the true final state
+  };
 
   const changeSettings = (s: Settings) => {
     setSettings(s);
     saveSettings(s);
     if (!s.dice) setRolls([]);
+    if (!s.zombies) skipPhase.current();
   };
 
   // A tooltip pinned by a tap goes away on the next touch.
@@ -244,6 +293,13 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   return (
     <div className="game">
       {rules && <Rulebook onClose={() => setRules(false)} />}
+      {showReplay && !online && g.replay && (
+        <Replay
+          data={{ initial: g.replay.initial, steps: g.replay.steps, final: state, outcome: state.status === 'won' ? 'won' : 'lost' }}
+          onClose={() => setShowReplay(false)}
+        />
+      )}
+      {showReplay && online?.replayToken && <ReplayFromToken token={online.replayToken} onClose={() => setShowReplay(false)} />}
       {showSettings && <SettingsModal settings={settings} onChange={changeSettings} onClose={() => setShowSettings(false)} />}
       <div className="boardwrap">
         <div ref={host} className="board" />
@@ -265,6 +321,12 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
           <button onClick={() => board.current?.zoomBy(1 / 1.3)} aria-label="zoom out">&minus;</button>
           <button onClick={() => board.current?.resetView()} aria-label="reset view">&#8634;</button>
         </div>
+        {banner && (
+          <div className={'phase-banner' + (banner.kind === 'alert' ? ' alert' : '')} key={banner.title + banner.sub} onClick={() => skipPhase.current()} title="Click to skip">
+            <b>{banner.title}</b>
+            {banner.sub && <span>{banner.sub}</span>}
+          </div>
+        )}
         <DiceOverlay queue={rolls} zoneName={zoneNameFor(state.scenarioId)} onDone={() => setRolls((q) => q.slice(1))} />
         {mode && <div className="banner">Pick a red zone to attack. <button onClick={() => setMode(null)}>Cancel</button></div>}
         {toast && <div className="toast" onClick={() => setToast('')}>{toast}</div>}
@@ -273,7 +335,10 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
             <div className="modal">
               <h2>{state.status === 'won' ? 'You made it out!' : 'The block is lost.'}</h2>
               <p>{state.status === 'won' ? `Survivors escaped in round ${state.round}.` : `Fallen in round ${state.round}.`}</p>
-              <button className="primary" onClick={onExit}>{online ? 'Back to my games' : 'Back to lobby'}</button>
+              {(online ? online.replayToken : g.replay) && (
+                <p><button className="primary" onClick={() => setShowReplay(true)}>Watch replay</button></p>
+              )}
+              <button className={online?.replayToken || g.replay ? '' : 'primary'} onClick={onExit}>{online ? 'Back to my games' : 'Back to lobby'}</button>
             </div>
           </div>
         )}

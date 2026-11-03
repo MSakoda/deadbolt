@@ -15,10 +15,12 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
   const [err, setErr] = useState('');
   const [remote, setRemote] = useState<Online['remote']>();
   const seq = useRef(0);
+  const [replayToken, setReplayToken] = useState<string | undefined>();
   const [initial, setInitial] = useState<{ state: GameState; log: LogLine[] } | null>(null);
 
   const apply = (v: GameView, first: boolean) => {
     setView(v);
+    if (v.game.replay) setReplayToken(v.game.replay);
     const events = v.recap.flatMap((r) => r.events);
     if (first && v.state) {
       // Opening a game: the recap becomes the log; the board snaps to the current state.
@@ -63,6 +65,16 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
   }
   if (!view) return <div className="lobby"><p className="dim">Loading…</p></div>;
 
+  if (view.game.status === 'abandoned') {
+    return (
+      <div className="lobby">
+        <h1>{view.game.name}</h1>
+        <p className="sub">This game was cancelled by the host. No more turns will be taken.</p>
+        <button className="primary" onClick={onExit}>My games</button>
+      </div>
+    );
+  }
+
   if (view.game.status === 'lobby' || !initial) {
     return <LobbyScreen view={view} me={me} onExit={onExit} refresh={async () => apply(await api<GameView>('GET', `/games/${id}`), view.game.status === 'lobby')} />;
   }
@@ -71,10 +83,12 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
     myId: me.id,
     names,
     remote,
+    replayToken,
     async send(actions: Action[]) {
       try {
-        const r = await api<{ state: GameState; events: GameEvent[]; seq: number }>('POST', `/games/${id}/actions`, { actions });
+        const r = await api<{ state: GameState; events: GameEvent[]; seq: number; replay?: string }>('POST', `/games/${id}/actions`, { actions });
         seq.current = r.seq;
+        if (r.replay) setReplayToken(r.replay);
         void api('POST', `/games/${id}/seen`, { seq: r.seq }).catch(() => undefined);
         return { state: r.state, events: r.events };
       } catch (e) {
@@ -127,6 +141,9 @@ function LobbyScreen({ view, me, onExit, refresh }: { view: GameView; me: Me['us
         )}
         <button onClick={() => refresh()}>Refresh</button>
         <button onClick={onExit}>My games</button>
+        {view.you.role === 'host' && (
+          <button className="danger" onClick={() => { if (confirm(`Cancel "${g.name}"? Everyone invited will be told.`)) void act('host/cancel'); }}>Cancel game</button>
+        )}
         {err && <span className="err">{err}</span>}
       </section>
     </div>
@@ -174,6 +191,9 @@ function HostButton({ id, view, onDone }: { id: string; view: GameView; onDone()
             <p className="start">
               <label>Reminder hours <input value={hours} onChange={(e) => setHours(e.target.value)} style={{ width: 130 }} /></label>
               <button onClick={() => run('PUT', 'nudges', { hours: hours.split(/[\s,]+/).filter(Boolean).map(Number) }, 'Reminder timing saved')}>Save</button>
+            </p>
+            <p className="start">
+              <button className="danger" onClick={() => { if (confirm(`Cancel "${view.game.name}" for everyone? This cannot be undone.`)) void run('POST', 'cancel', undefined, 'Game cancelled'); }}>Cancel game</button>
             </p>
             {msg && <p className="dim">{msg}</p>}
             <button onClick={() => setOpen(false)}>Close</button>

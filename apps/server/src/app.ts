@@ -140,12 +140,16 @@ export function buildApp({ service, jobSecret }: AppOptions): FastifyInstance {
     const b = body(req);
     return service.handover((req.params as P).id, (await auth(req)).id, String(b.charId ?? ''), String(b.to ?? ''));
   });
+  app.post('/games/:id/host/cancel', async (req) => service.cancelGame((req.params as P).id, (await auth(req)).id));
   app.post('/games/:id/host/transfer', async (req) =>
     service.transferHost((req.params as P).id, (await auth(req)).id, String(body(req).to ?? '')),
   );
   app.put('/games/:id/host/nudges', async (req) =>
     service.setNudges((req.params as P).id, (await auth(req)).id, body(req).hours as number[]),
   );
+
+  // ---- public replay (the unguessable token is the credential) ----
+  app.get('/replay/:token', async (req) => service.replay((req.params as { token: string }).token));
 
   // ---- cron ----
   app.post('/jobs/run', async (req) => {

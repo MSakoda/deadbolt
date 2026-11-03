@@ -118,6 +118,14 @@ describe('games', () => {
     expect((await call(a, 'POST', `/api/games/${id}/start`)).status).toBe(200);
   });
 
+  it('rejects a host who invites themself, in any letter case', async () => {
+    const a = await signIn('a@x.com');
+    const r = await call(a, 'POST', '/api/games', { name: 'G', players: [{ email: 'b@x.com' }, { email: ' A@X.com ' }] });
+    expect(r.status).toBe(400);
+    expect(r.json.error).toMatch(/your own email/);
+    expect((await call(a, 'GET', '/api/me')).json.games).toEqual([]);
+  });
+
   it('hides games from non-members and emails from non-hosts', async () => {
     const g = await startedGame();
     const c = await signIn('c@x.com');
@@ -281,6 +289,33 @@ describe('nudges and host controls', () => {
     ]);
   });
 
+  it('lets only the host cancel a game, stops turns and mail, and tells the others', async () => {
+    const g = await startedGame();
+    expect((await call(g.b, 'POST', `/api/games/${g.id}/host/cancel`)).status).toBe(403);
+    const { up } = await whoIsUp(g);
+    expect((await call(g.a, 'POST', `/api/games/${g.id}/host/cancel`)).status).toBe(200);
+    expect(lastMail('b@x.com').subject).toMatch(/cancelled/);
+    const v = (await call(g.a, 'GET', `/api/games/${g.id}`)).json;
+    expect(v.game.status).toBe('abandoned');
+    expect(v.game.activeOwner).toBeNull();
+    expect((await call(up, 'POST', `/api/games/${g.id}/actions`, { actions: [{ type: 'end_turn' }] })).status).toBe(409);
+    expect((await call(g.a, 'POST', `/api/games/${g.id}/host/cancel`)).status).toBe(409);
+    // Queued reminders for the cancelled game are dropped.
+    const sent = mailer.outbox.length;
+    clock += 200 * 3600_000;
+    await service.runJobs();
+    expect(mailer.outbox.slice(sent).filter((m) => /\[Group A\]/.test(m.subject))).toEqual([]);
+  });
+
+  it('cancels a game that has not started and blocks late joins', async () => {
+    const a = await signIn('a@x.com');
+    const id = (await call(a, 'POST', '/api/games', { name: 'G', players: [{ email: 'b@x.com' }] })).json.game.id as string;
+    const b = await signIn('b@x.com');
+    expect((await call(a, 'POST', `/api/games/${id}/host/cancel`)).status).toBe(200);
+    expect((await call(b, 'POST', `/api/games/${id}/join`)).status).toBe(409);
+    expect((await call(a, 'POST', `/api/games/${id}/start`)).status).toBe(409);
+  });
+
   it('guards the cron endpoint with the shared secret', async () => {
     expect((await app.inject({ method: 'POST', url: '/api/jobs/run' })).statusCode).toBe(403);
     const ok = await app.inject({ method: 'POST', url: '/api/jobs/run', headers: { 'x-job-secret': 'secret' } });
@@ -343,5 +378,35 @@ describe('batched actions', () => {
     // Nothing may follow end_turn in the same batch: the seat has changed.
     const late = await call(other, 'POST', `/api/games/${g.id}/actions`, { actions: [{ type: 'end_turn' }, { type: 'noise' }] });
     expect(late.status).toBe(403);
+  });
+});
+
+describe('replay', () => {
+  it('creates a public replay link when the game ends, without leaking emails or the seed', async () => {
+    const { chooseAction } = await import('@deadbolt/engine/src/bot');
+    const g = await startedGame();
+    let game = await service.getGame(g.id);
+    expect(game.replayToken).toBeUndefined();
+    expect((await app.inject({ method: 'GET', url: '/api/replay/nope' })).statusCode).toBe(404);
+    for (let i = 0; i < 6000 && game.status === 'active'; i++) {
+      await service.act(g.id, game.activeOwner!, [chooseAction(game.state!)]);
+      game = await service.getGame(g.id);
+    }
+    expect(['won', 'lost']).toContain(game.status);
+    expect(game.replayToken).toBeTruthy();
+
+    // Members see the token; the replay itself needs no login.
+    const v = (await call(g.a, 'GET', `/api/games/${g.id}`)).json;
+    expect(v.game.replay).toBe(game.replayToken);
+    const res = await app.inject({ method: 'GET', url: `/api/replay/${game.replayToken}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.outcome).toBe(game.status);
+    expect(body.steps.length).toBeGreaterThan(5);
+    expect(body.steps.every((st: any) => st.events.every((e: any) => e.type !== 'attack' && e.type !== 'cards_drawn'))).toBe(true);
+    const text = JSON.stringify(body);
+    expect(text).not.toContain('@x.com');
+    expect(text).not.toContain('"seed"');
+    expect(body.initial.searchDeck.every((c: any) => c.item === 'wound')).toBe(true);
   });
 });

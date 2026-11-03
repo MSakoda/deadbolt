@@ -89,9 +89,11 @@ export function runZombiePhase(c: Ctx): void {
   emit(c, 'zombie_phase_start', { round: s.round, zombies: s.zombies.length });
   activate(c, () => true);
   // Sprinters take a second action after everyone else.
+  emit(c, 'zombie_step', { step: 'sprint' });
   activate(c, (z) => ZOMBIE_DEFS[z.type].actions > 1);
   if (s.status !== 'active') return;
 
+  emit(c, 'zombie_step', { step: 'spawn' });
   let surge = false;
   const sc = getScenario(s.scenarioId);
   for (const zone of sc.zones) {

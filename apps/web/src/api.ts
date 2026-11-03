@@ -37,6 +37,7 @@ export interface GameSummary {
   round: number;
   yourTurn: boolean;
   activeSince: number | null;
+  replay?: string;
 }
 
 export interface MemberView {
@@ -57,6 +58,7 @@ export interface GameView {
     activeOwner: string | null;
     activeSince: number | null;
     seq: number;
+    replay?: string;
     settings: { nudgeHours: number[] };
     members: MemberView[];
   };

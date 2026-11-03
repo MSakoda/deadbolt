@@ -41,6 +41,8 @@ export interface Game {
   activeSince: number | null;
   settings: { nudgeHours: number[] };
   createdAt: number;
+  /** Unguessable id for the public replay link; set when the game ends. */
+  replayToken?: string;
 }
 
 export interface LogEntry {

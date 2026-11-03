@@ -134,3 +134,22 @@ describe('bot smoke test with invariants', () => {
     }
   });
 });
+
+describe('zombie phase events', () => {
+  it('marks its stages in order so a client can play them back step by step', () => {
+    let s = mk();
+    zombie(s, 'sprinter', 'main_street');
+    let events: { type: string; step?: unknown }[] = [];
+    for (let i = 0; i < 4; i++) {
+      const r = run(s, { type: 'end_turn' });
+      s = r.state;
+      events = r.events;
+    }
+    const kinds = events.map((e) => (e.type === 'zombie_step' ? `step:${e.step}` : e.type));
+    const at = (k: string) => kinds.indexOf(k);
+    expect(at('zombie_phase_start')).toBeGreaterThanOrEqual(0);
+    expect(at('zombie_phase_start')).toBeLessThan(at('step:sprint'));
+    expect(at('step:sprint')).toBeLessThan(at('step:spawn'));
+    expect(at('step:spawn')).toBeLessThan(at('zombie_phase_end'));
+  });
+});

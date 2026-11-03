@@ -17,7 +17,7 @@ export function App() {
       seed: r.seed,
       survivors: r.survivors.map((s) => ({ charId: s.charId, owner: s.owner })),
     });
-    const g: Saved = { state, log: describeAll(state, events), players: r.players };
+    const g: Saved = { state, log: describeAll(state, events), players: r.players, replay: { initial: structuredClone(state), steps: [] } };
     save(g);
     setGame(g);
   };

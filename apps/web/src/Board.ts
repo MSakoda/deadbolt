@@ -567,6 +567,8 @@ export class BoardView {
       } else if (type === 'level_up') {
         const sv = this.survivors.get(e['survivor'] as string);
         later(() => { if (sv) this.floatAt(sv.x, sv.y - 28, 'LEVEL UP', 0xffd54f); });
+      } else if (type === 'alarm') {
+        later(() => { this.ring(e['zone'] as string); this.float(e['zone'] as string, 'ALARM', 0xff5252); });
       } else if (type === 'building_opened') {
         later(() => undefined);
       } else if (type === 'zombie_attacked') {
