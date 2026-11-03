@@ -1,0 +1,24 @@
+# Pings the server every 5 minutes. That one request sends due reminders and the 8 AM daily digests,
+# and keeps the free Render service from staying asleep. Needs two repository secrets:
+#   APP_URL     the public address, for example https://deadbolt.onrender.com
+#   JOB_SECRET  the same value as the JOB_SECRET environment variable on Render
+name: jobs
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Run due email jobs
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          JOB_SECRET: ${{ secrets.JOB_SECRET }}
+        run: |
+          # A sleeping free service can take a minute to wake, so allow time and retry.
+          curl -fsS --max-time 120 --retry 3 --retry-delay 15 --retry-all-errors \
+            -X POST "$APP_URL/api/jobs/run" -H "x-job-secret: $JOB_SECRET"

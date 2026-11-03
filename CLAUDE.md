@@ -9,7 +9,8 @@ npm workspaces (`packages/*`, `apps/*`):
 - `packages/engine` (`@deadbolt/engine`): pure TypeScript rules engine. No I/O, no DOM. Deterministic and replayable.
 - `apps/web` (`@deadbolt/web`): Vite + React 18 + PixiJS 8 client. Online by default (`OnlineApp.tsx`: sign-in, my games, create game; `OnlineGame.tsx`: lobby, board, host panel, 10s polling) with hot-seat still available (autosaved to localStorage key `deadbolt-hotseat-v1`). `api.ts` calls `/api/*`; vite proxies it to :8787.
 - `apps/server` (`@deadbolt/server`): Fastify API. `service.ts` holds all logic (auth, games, turns, host tools, email jobs); `app.ts` is thin routes; `store.ts` is a generic doc store (MemoryStore + optional JSON file); `pgstore.ts` is the Postgres version (one jsonb table `docs`, auto-created), used when `DATABASE_URL` is set (read from the git-ignored repo-root `.env` in dev); `mail.ts` is a console mailer. Games are seed + log, state cached on the game doc; clients get `redact()`ed state. All routes live under `/api`. Run: `npm run server` (env PORT, BASE_URL, DATA_FILE, JOB_SECRET). Dev: run the server with `BASE_URL=http://localhost:5173` (emailed links go through vite) and `npm run dev` for the web app; sign-in links are printed in the server console.
-- Planned: Resend mailer, Render free hosting with an external cron hitting `POST /jobs/run` (header `x-job-secret`).
+- Production: the server also serves the built web app (`@fastify/static`, SPA fallback for non-API HTML GETs; `STATIC_DIR` overrides apps/web/dist), so one Render service runs everything: `render.yaml` (secrets DATABASE_URL, BASE_URL, JOB_SECRET) and `.github/workflows/jobs.yml` (cron every 5 min POSTs /api/jobs/run; repo secrets APP_URL, JOB_SECRET). Local prod check: `npm run build` then `npm run server`.
+- Planned: Resend mailer.
 
 ## Commands
 
@@ -63,7 +64,7 @@ npm run server      # dev API on :8787, mail printed to console
 
 1. Engine: done.
 2. Hot-seat web client with legend, goal panel, tooltips, hit chances, mobile pan/zoom, rulebook: done.
-3. Server: done except hosting. Magic-link auth, invites, lobby/start, atomic batched actions validated by the engine, recap, nudges + host prompt, daily digest (8 AM in the user's `tz`), host skip/handover/transfer/cancel (cancel sets status abandoned, mails the others), job runner, 26 tests, and the web client talking to it (verified end to end in a browser with two players). Remaining: Postgres store (Neon), Resend mailer, serving the built web app from the server (`@fastify/static` + SPA fallback) for a single Render service, cron ping, character picking in the create-game form, animated recap on open. Needs the user to create Neon and Resend accounts and pick hosting.
+3. Server: done except hosting. Magic-link auth, invites, lobby/start, atomic batched actions validated by the engine, recap, nudges + host prompt, daily digest (8 AM in the user's `tz`), host skip/handover/transfer/cancel (cancel sets status abandoned, mails the others), job runner, 26 tests, and the web client talking to it (verified end to end in a browser with two players). Done since: Postgres store (Neon, in use locally), static serving + SPA fallback, render.yaml, cron workflow. Remaining: deploy to Render and set the repo secrets, Resend mailer (needs a verified domain to email other people; until then mail only prints to the server log), character picking in the create-game form, animated recap on open.
 4. Polish: fuller phone layout, bigger bite/kill popups, sound.
 
 ## Conventions

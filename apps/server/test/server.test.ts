@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { applyAction, legalActions, type Action } from '@deadbolt/engine';
@@ -408,5 +411,22 @@ describe('replay', () => {
     expect(text).not.toContain('@x.com');
     expect(text).not.toContain('"seed"');
     expect(body.initial.searchDeck.every((c: any) => c.item === 'wound')).toBe(true);
+  });
+});
+
+describe('serving the web app', () => {
+  it('serves the built site with an SPA fallback for client routes and keeps /api as JSON', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'deadbolt-web-'));
+    writeFileSync(join(dir, 'index.html'), '<html>deadbolt app</html>');
+    const web = buildApp({ service, jobSecret: 'secret', staticDir: dir });
+    const page = (url: string, accept = 'text/html') => web.inject({ method: 'GET', url, headers: { accept } });
+    expect((await page('/')).body).toContain('deadbolt app');
+    expect((await page('/games/abc123')).body).toContain('deadbolt app');
+    expect((await page('/replay/tok_en-1')).body).toContain('deadbolt app');
+    expect((await page('/api/me', 'application/json')).statusCode).toBe(401);
+    const missing = await page('/api/nope', 'text/html');
+    expect(missing.statusCode).toBe(404);
+    expect(missing.body).not.toContain('deadbolt app');
+    expect((await page('/health')).json()).toEqual({ ok: true });
   });
 });

@@ -1,0 +1,24 @@
+# Render blueprint: one free web service that serves both the API and the built web app.
+# Create it with New > Blueprint and point it at this repo, then fill in the three secrets below.
+services:
+  - type: web
+    name: deadbolt
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start -w @deadbolt/server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      # Neon connection string (the pooled one). Never commit it.
+      - key: DATABASE_URL
+        sync: false
+      # The public address of this service, for example https://deadbolt.onrender.com (no trailing slash).
+      # Sign-in and invite links in emails are built from it.
+      - key: BASE_URL
+        sync: false
+      # Any long random string. The GitHub Actions cron sends the same value in x-job-secret.
+      - key: JOB_SECRET
+        sync: false

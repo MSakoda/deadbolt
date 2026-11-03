@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { Action } from '@deadbolt/engine';
 import { Service, SESSION_TTL } from './service';
@@ -9,6 +12,8 @@ export interface AppOptions {
   service: Service;
   /** Shared secret for POST /jobs/run (the external cron). Unset disables the endpoint. */
   jobSecret?: string;
+  /** Built web app (apps/web/dist). When set, the server also serves the site, with an SPA fallback. */
+  staticDir?: string;
 }
 
 function cookieOf(req: FastifyRequest): string | undefined {
@@ -19,7 +24,7 @@ function cookieOf(req: FastifyRequest): string | undefined {
   return undefined;
 }
 
-export function buildApp({ service, jobSecret }: AppOptions): FastifyInstance {
+export function buildApp({ service, jobSecret, staticDir }: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false });
   const secure = service.baseUrl.startsWith('https');
 
@@ -158,6 +163,25 @@ export function buildApp({ service, jobSecret }: AppOptions): FastifyInstance {
   });
 
   }, { prefix: '/api' });
+
+  if (staticDir && existsSync(join(staticDir, 'index.html'))) {
+    // Hashed build files never change, so cache them hard; the page itself must always be fresh.
+    app.register(fastifyStatic, {
+      root: staticDir,
+      wildcard: false,
+      cacheControl: false,
+      setHeaders: (res, path) => {
+        res.setHeader('cache-control', path.endsWith('index.html') ? 'no-cache' : /[\\/]assets[\\/]/.test(path) ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+      },
+    });
+    // /games/:id and /replay/:token are client routes: any other page-like GET gets the app.
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method === 'GET' && !req.url.startsWith('/api/') && (req.headers.accept ?? '').includes('text/html')) {
+        return reply.header('cache-control', 'no-cache').type('text/html').sendFile('index.html');
+      }
+      return reply.code(404).send({ error: 'not found' });
+    });
+  }
 
   return app;
 }
