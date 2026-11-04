@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CHARACTER_BY_ID, ITEMS } from '@deadbolt/engine';
 import type { Action, Card, GameState, ItemId, Survivor } from '@deadbolt/engine';
+import { ItemIcon } from './Portrait';
 
 export function itemStat(id: ItemId): string {
   const d = ITEMS[id];
@@ -46,6 +47,7 @@ export function SearchModal({ state, actor, dispatch }: { state: GameState; acto
         <div className="row">
           {p.cards.map((c, i) => (
             <div key={c.id} className="found">
+              <ItemIcon id={c.item} size={96} />
               <b>{ITEMS[c.item].name}</b>
               <small>{itemStat(c.item)}</small>
               <button className="primary" onClick={() => dispatch({ type: 'resolve_search', keep: i, ...(full ? { replaceSlot: replace } : {}) })}>Keep</button>

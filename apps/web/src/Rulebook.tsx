@@ -195,7 +195,7 @@ function Combat() {
 function Zombies() {
   const names: Record<ZombieType, string> = { shambler: 'Shambler', sprinter: 'Sprinter', brute: 'Brute', mutant: 'Mutant' };
   const colour: Record<ZombieType, string> = { shambler: '#7cb342', sprinter: '#d4e157', brute: '#33691e', mutant: '#8e24aa' };
-  const shape: Record<ZombieType, string> = { shambler: 'Face in a green ring', sprinter: 'Face in a yellow ring (R)', brute: 'Dark green square (B)', mutant: 'Purple hexagon (M)' };
+  const shape: Record<ZombieType, string> = { shambler: 'Face in a green ring', sprinter: 'Face in a yellow ring (R)', brute: 'Face in a dark green ring (B)', mutant: 'Face in a purple ring (M)' };
   return (
     <>
       <h3>Zombie types</h3>

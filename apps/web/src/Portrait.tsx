@@ -1,5 +1,5 @@
 import { SURVIVOR_COLORS } from './Board';
-import { portraitUrl, zombieUrl, ZOMBIE_ART } from './art';
+import { itemUrl, ITEM_ART, portraitUrl, zombieUrl, ZOMBIE_ART } from './art';
 
 export { portraitUrl };
 
@@ -27,4 +27,10 @@ export function ZombieFace({ type, size = 28 }: { type: string; size?: number })
     return <span className="pimg" style={{ width: size, height: size, background: color, borderColor: '#0d1008', display: 'inline-block' }} />;
   }
   return <img className="pimg zface" src={zombieUrl(type)} alt="" width={size} height={size} style={{ borderColor: color }} />;
+}
+
+/** Item picture, at most `size` px and shrinking to fit a narrow slot. Renders nothing until the item has art. */
+export function ItemIcon({ id, size = 48 }: { id: string; size?: number }) {
+  if (!ITEM_ART.includes(id)) return null;
+  return <img className="iicon" src={itemUrl(id)} alt="" style={{ ['--isz' as string]: size + 'px' }} />;
 }

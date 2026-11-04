@@ -2,7 +2,7 @@ import { ABILITY_TEXT, CHARACTER_BY_ID, DANGER_NAMES, ITEMS, LEVEL_XP, woundCoun
 import type { Card, Survivor, TurnState } from '@deadbolt/engine';
 import { SURVIVOR_COLORS } from './Board';
 import { itemStat } from './Modals';
-import { portraitUrl } from './Portrait';
+import { ItemIcon, portraitUrl } from './Portrait';
 import { weaponInfo } from './info';
 
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
@@ -47,6 +47,7 @@ function Hand({ label, card, actor }: { label: string; card: Card | null; actor:
   return (
     <div className={'hand' + (card ? '' : ' empty') + (card?.item === 'wound' ? ' wound' : '') + (card?.spent ? ' spent' : '')} title={card ? itemStat(card.item) : 'empty'}>
       <small>{label}</small>
+      {card && <ItemIcon id={card.item} size={64} />}
       <b>{card ? ITEMS[card.item].name : '—'}</b>
       {card?.spent && <em>spent, reload</em>}
       {w && <span>{w.dice} {w.dice === 1 ? 'die' : 'dice'} · {w.need}+ · dmg {w.dmg}<br />{w.melee ? 'melee' : w.range}</span>}
@@ -106,6 +107,7 @@ export function SurvivorCard({ actor, turn, owner, zone }: { actor: Survivor; tu
         <div>
           {actor.slots.slice(2).map((c, i) => (
             <div key={i} className={'pk' + (c ? '' : ' empty') + (c?.item === 'wound' ? ' wound' : '')} title={c ? itemStat(c.item) : 'empty'}>
+              {c && <ItemIcon id={c.item} size={40} />}
               {c ? ITEMS[c.item].name : '—'}
             </div>
           ))}
