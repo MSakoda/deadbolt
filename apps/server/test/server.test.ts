@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { applyAction, legalActions, type Action } from '@deadbolt/engine';
 import { buildApp } from '../src/app';
-import { ConsoleMailer, ResendMailer } from '../src/mail';
+import { ConsoleMailer, GmailMailer, rawMessage, ResendMailer } from '../src/mail';
 import { LOGIN_TTL, Service } from '../src/service';
 import { MemoryStore } from '../src/store';
 
@@ -464,5 +464,62 @@ describe('Resend mailer', () => {
     try { expect(await service.runJobs()).toEqual({ sent: 0, skipped: 0 }); } finally { console.error = quiet; }
     (service as unknown as { mailer: unknown }).mailer = real;
     expect((await service.runJobs()).sent).toBeGreaterThan(0);
+  });
+});
+
+describe('Gmail mailer', () => {
+  const cfg = { user: 'me@gmail.com', clientId: 'cid', clientSecret: 'csecret', refreshToken: 'rtoken', name: 'Deadbolt' };
+  const mail = { to: 'b@x.com', subject: 'Your turn: \u00e9t\u00e9', text: 'open this link\nline two' };
+  const decode = (raw: string) => Buffer.from(raw, 'base64url').toString('utf8');
+
+  it('refreshes a token once, reuses it, and sends a UTF-8 message through the Gmail API', async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    let t = 1_000_000;
+    const f = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return url.includes('oauth2')
+        ? new Response('{"access_token":"at1","expires_in":3600}', { status: 200 })
+        : new Response('{"id":"m1"}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const m = new GmailMailer(cfg, f, () => t);
+    await m.send(mail);
+    await m.send(mail);
+    expect(calls.map((c) => c.url.includes('oauth2'))).toEqual([true, false, false]);
+    expect(String(calls[0]!.init.body)).toContain('refresh_token=rtoken');
+    expect((calls[1]!.init.headers as Record<string, string>).authorization).toBe('Bearer at1');
+    const msg = decode(JSON.parse(String(calls[1]!.init.body)).raw);
+    expect(msg).toContain('To: b@x.com');
+    expect(msg).toContain('From: =?UTF-8?B?' + Buffer.from('Deadbolt').toString('base64') + '?= <me@gmail.com>');
+    expect(msg).toContain('Subject: =?UTF-8?B?' + Buffer.from(mail.subject).toString('base64') + '?=');
+    const body = msg.split('\r\n\r\n')[1]!.replace(/\r\n/g, '');
+    expect(Buffer.from(body, 'base64').toString('utf8')).toBe(mail.text);
+    // Past expiry it asks for a new token.
+    t += 3600_000;
+    await m.send(mail);
+    expect(calls.filter((c) => c.url.includes('oauth2'))).toHaveLength(2);
+  });
+
+  it('cannot be tricked into extra headers through the address or subject', () => {
+    const msg = decode(rawMessage({ address: 'me@gmail.com' }, { to: 'b@x.com\r\nBcc: evil@x.com', subject: 'hi\r\nBcc: evil@x.com', text: 't' }));
+    const head = msg.split('\r\n\r\n')[0]!;
+    expect(head.split('\r\n').filter((l) => l.startsWith('Bcc:'))).toEqual([]);
+  });
+
+  it('fails with a 502 and never logs tokens or the mail body', async () => {
+    const logged: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => { logged.push(a.join(' ')); };
+    try {
+      const badToken = (async () => new Response('{"error":"invalid_grant"}', { status: 400 })) as unknown as typeof fetch;
+      await expect(new GmailMailer(cfg, badToken).send(mail)).rejects.toMatchObject({ status: 502 });
+      const badSend = (async (url: string) => url.includes('oauth2')
+        ? new Response('{"access_token":"at1","expires_in":3600}', { status: 200 })
+        : new Response('{"error":{"message":"Daily user sending limit exceeded"}}', { status: 429 })) as unknown as typeof fetch;
+      await expect(new GmailMailer(cfg, badSend).send(mail)).rejects.toMatchObject({ status: 502 });
+      const all = logged.join('\n');
+      expect(all).toContain('invalid_grant');
+      expect(all).toContain('429');
+      for (const secret of ['rtoken', 'csecret', 'at1', 'open this link']) expect(all).not.toContain(secret);
+    } finally { console.error = orig; }
   });
 });
