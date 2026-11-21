@@ -141,12 +141,16 @@ const MAX_INVITES = 5;
 function CreateGame({ myEmail, onCreated }: { myEmail: string; onCreated(id: string): void }) {
   const [name, setName] = useState('');
   const [emails, setEmails] = useState(['']);
-  const [per, setPer] = useState(1);
+  /** What is typed in the survivors-per-player box (may be empty while editing). */
+  const [perText, setPerText] = useState('1');
   /** Chosen survivors per player: index 0 is you, index i + 1 is invite row i. An empty string means automatic. */
   const [picks, setPicks] = useState<string[][]>([[], []]);
   const [err, setErr] = useState('');
   const [guide, setGuide] = useState(false);
   const list = emails.map((e) => e.trim()).filter(Boolean);
+  // At most 6 survivors in all, so the most each player can have depends on how many players there are.
+  const maxPer = Math.max(1, Math.floor(6 / (list.length + 1)));
+  const per = Math.min(maxPer, Math.max(1, Number(perText) || 1));
   const inviteSelf = list.some((e) => e.toLowerCase() === myEmail.toLowerCase());
   const setEmail = (i: number, v: string) => setEmails((a) => a.map((x, j) => (j === i ? v : x)));
   const players = [{ pi: 0, label: 'You' }, ...emails.map((e, i) => ({ pi: i + 1, label: e.trim() })).filter((p) => p.label)];
@@ -182,30 +186,33 @@ function CreateGame({ myEmail, onCreated }: { myEmail: string; onCreated(id: str
       <p><button type="button" disabled={emails.length >= MAX_INVITES} onClick={() => { setEmails((a) => [...a, '']); setPicks((p) => [...p, []]); }}>Add invite</button>
         <span className="dim"> {emails.length} of {MAX_INVITES} invites</span></p>
       <p className="start">
-        <label>Survivors per player <input type="number" min={1} max={6} value={per} onChange={(e) => setPer(Number(e.target.value) || 1)} style={{ width: 70 }} /></label>
+        <label>Survivors per player <input type="text" inputMode="numeric" pattern="[0-9]*" value={perText} aria-label={`Survivors per player, 1 to ${maxPer}`}
+          onChange={(e) => setPerText(e.target.value.replace(/\D/g, '').slice(0, 1))}
+          onBlur={() => setPerText(String(per))} style={{ width: 70 }} /> <span className="dim">(1 to {maxPer})</span></label>
         <span className={total > 6 ? 'err' : 'dim'}>{list.length + 1} player{solo ? '' : 's'} · {total} survivor{total === 1 ? '' : 's'} (1 to 6 players, at most 6 survivors)</span>
       </p>
       {solo && (
         <p className="dim">
           Playing alone? You control every survivor and take each turn in order. The board game suggests {soloPer}.{' '}
-          {per !== soloPer && <button type="button" className="link" onClick={() => setPer(soloPer)}>Use {soloPer} survivors</button>}
+          {per !== soloPer && <button type="button" className="link" onClick={() => setPerText(String(soloPer))}>Use {soloPer} survivors</button>}
         </p>
       )}
       <h3>Survivors</h3>
       <p className="dim">Pick who each player controls, or leave Auto to have the rest handed out in order. <button type="button" className="link" onClick={() => setGuide(true)}>Read about the survivors</button></p>
       {players.map((p) => (
-        <div key={p.pi} className="srow">
-          <b style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{p.label}</b>
-          <span className="grow" />
-          {chosen(p.pi).map((v, s) => (
-            <span key={s} className="start" style={{ gap: 6 }}>
-              {v && <Portrait id={v} size={28} />}
-              <select value={v} onChange={(e) => setPick(p.pi, s, e.target.value)} aria-label={`Survivor ${s + 1} for ${p.label}`}>
-                <option value="">Auto</option>
-                {CHARACTERS.map((c) => <option key={c.id} value={c.id} disabled={taken.has(c.id) && c.id !== v}>{c.name} ({c.role})</option>)}
-              </select>
-            </span>
-          ))}
+        <div key={p.pi} className="srow" style={{ display: 'block' }}>
+          <b style={{ display: 'block', minWidth: 0, overflowWrap: 'anywhere', marginBottom: 6 }}>{p.label}</b>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
+            {chosen(p.pi).map((v, s) => (
+              <span key={s} className="start" style={{ gap: 6 }}>
+                {v && <Portrait id={v} size={28} />}
+                <select value={v} onChange={(e) => setPick(p.pi, s, e.target.value)} aria-label={`Survivor ${s + 1} for ${p.label}`}>
+                  <option value="">Auto</option>
+                  {CHARACTERS.map((c) => <option key={c.id} value={c.id} disabled={taken.has(c.id) && c.id !== v}>{c.name} ({c.role})</option>)}
+                </select>
+              </span>
+            ))}
+          </div>
         </div>
       ))}
       <button className="primary" type="submit" style={{ marginTop: 12 }} disabled={total > 6 || inviteSelf}>{solo ? 'Create solo game' : 'Create and send invites'}</button>
