@@ -370,6 +370,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
         )}
         {actor && canAct && state.status === 'active' && !state.pending && (
           <div className="card actions">
+            <div className="yourturn">Your turn: {CHARACTER_BY_ID[actor.charId]?.name.split(' ')[0]}</div>
             <div className="hint">Click a blue zone to move, an orange door to open it.</div>
             <div className="btns">
               {slotButtons}
