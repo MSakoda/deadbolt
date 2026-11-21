@@ -366,8 +366,9 @@ const TABS: { id: string; label: string; body: () => JSX.Element }[] = [
   { id: 'scenario', label: 'The Long Block', body: Scenario },
 ];
 
-export function Rulebook({ onClose }: { onClose(): void }) {
-  const [tab, setTab] = useState(TABS[0]!.id);
+/** `start` is the id of the tab to open on, for example 'survivors'. */
+export function Rulebook({ onClose, start }: { onClose(): void; start?: string }) {
+  const [tab, setTab] = useState(TABS.some((t) => t.id === start) ? start! : TABS[0]!.id);
   const Body = TABS.find((t) => t.id === tab)!.body;
   return (
     <div className="rb-bg" onClick={onClose}>

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CHARACTER_BY_ID } from '@deadbolt/engine';
+import { CHARACTER_BY_ID, CHARACTERS, defaultSurvivorsPerPlayer } from '@deadbolt/engine';
 import { api, ApiError, type GameSummary, type Me } from './api';
 import { OnlineGame } from './OnlineGame';
+import { Portrait } from './Portrait';
+import { Rulebook } from './Rulebook';
 import { ReplayFromToken } from './Replay';
 
 const gameIdFromPath = (): string | null => /^\/games\/([\w-]+)/.exec(location.pathname)?.[1] ?? null;
@@ -80,6 +82,7 @@ function SignIn({ onHotseat }: { onHotseat(): void }) {
 
 function Dashboard({ me, reload, open, openReplay, onHotseat }: { me: Me; reload(): Promise<void>; open(id: string): void; openReplay(token: string): void; onHotseat(): void }) {
   const [creating, setCreating] = useState(false);
+  const [rules, setRules] = useState(false);
   const [name, setName] = useState(me.user.name);
 
   // First visit: remember the browser's timezone so the daily digest goes out at 8 AM local time.
@@ -106,9 +109,11 @@ function Dashboard({ me, reload, open, openReplay, onHotseat }: { me: Me; reload
         <label>Your name <input value={name} onChange={(e) => setName(e.target.value)} /></label>
         <button onClick={() => api('PATCH', '/me', { name }).then(reload)}>Save</button>
         <span className="grow" />
+        <button onClick={() => setRules(true)}>Rulebook</button>
         <button onClick={onHotseat}>Hot-seat mode</button>
         <button onClick={() => api('POST', '/auth/logout').then(reload)}>Sign out</button>
       </section>
+      {rules && <Rulebook onClose={() => setRules(false)} />}
     </div>
   );
 }
@@ -136,41 +141,77 @@ function CreateGame({ myEmail, onCreated }: { myEmail: string; onCreated(id: str
   const [name, setName] = useState('');
   const [emails, setEmails] = useState(['']);
   const [per, setPer] = useState(1);
+  /** Chosen survivors per player: index 0 is you, index i + 1 is invite row i. An empty string means automatic. */
+  const [picks, setPicks] = useState<string[][]>([[], []]);
   const [err, setErr] = useState('');
+  const [guide, setGuide] = useState(false);
   const list = emails.map((e) => e.trim()).filter(Boolean);
   const inviteSelf = list.some((e) => e.toLowerCase() === myEmail.toLowerCase());
   const setEmail = (i: number, v: string) => setEmails((a) => a.map((x, j) => (j === i ? v : x)));
+  const players = [{ pi: 0, label: 'You' }, ...emails.map((e, i) => ({ pi: i + 1, label: e.trim() })).filter((p) => p.label)];
+  const chosen = (pi: number) => Array.from({ length: per }, (_, s) => picks[pi]?.[s] ?? '');
+  const taken = new Set(players.flatMap((p) => chosen(p.pi)).filter(Boolean));
+  const setPick = (pi: number, s: number, v: string) =>
+    setPicks((all) => all.map((row, j) => (j === pi ? Array.from({ length: Math.max(per, row.length) }, (_, k) => (k === s ? v : row[k] ?? '')) : row)));
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr('');
     try {
       const v = await api<{ game: { id: string } }>('POST', '/games', {
-        name, survivorsPerPlayer: per, players: list.map((email) => ({ email })),
+        name, survivorsPerPlayer: per,
+        hostCharIds: chosen(0).filter(Boolean),
+        players: emails.map((e, i) => ({ email: e.trim(), charIds: chosen(i + 1).filter(Boolean) })).filter((p) => p.email),
       });
       onCreated(v.game.id);
     } catch (x) { setErr((x as Error).message); }
   };
   const total = (list.length + 1) * per;
+  const solo = list.length === 0;
+  const soloPer = defaultSurvivorsPerPlayer(1);
   return (
     <form onSubmit={submit}>
       <p><input required placeholder="Game name (for example, Friday group)" value={name} onChange={(e) => setName(e.target.value)} style={{ width: '100%' }} /></p>
       {emails.map((v, i) => (
         <p key={i} className="start">
-          <input type="email" placeholder={i === 0 ? "Friend's email (you are added automatically)" : "Another friend's email"}
+          <input type="email" placeholder={i === 0 ? "Friend's email (optional: leave empty to play alone)" : "Another friend's email"}
             value={v} onChange={(e) => setEmail(i, e.target.value)} style={{ flex: 1, minWidth: 0 }} />
-          {emails.length > 1 && <button type="button" onClick={() => setEmails((a) => a.filter((_, j) => j !== i))} aria-label="Remove this invite" title="Remove">&times;</button>}
+          {emails.length > 1 && <button type="button" onClick={() => { setEmails((a) => a.filter((_, j) => j !== i)); setPicks((p) => p.filter((_, j) => j !== i + 1)); }} aria-label="Remove this invite" title="Remove">&times;</button>}
         </p>
       ))}
-      <p><button type="button" disabled={emails.length >= MAX_INVITES} onClick={() => setEmails((a) => [...a, ''])}>Add invite</button>
+      <p><button type="button" disabled={emails.length >= MAX_INVITES} onClick={() => { setEmails((a) => [...a, '']); setPicks((p) => [...p, []]); }}>Add invite</button>
         <span className="dim"> {emails.length} of {MAX_INVITES} invites</span></p>
       <p className="start">
         <label>Survivors per player <input type="number" min={1} max={6} value={per} onChange={(e) => setPer(Number(e.target.value) || 1)} style={{ width: 70 }} /></label>
-        <span className={total > 6 || list.length < 1 ? 'err' : 'dim'}>{list.length + 1} players · {total} survivors (2 to 6 players, at most 6 survivors)</span>
+        <span className={total > 6 ? 'err' : 'dim'}>{list.length + 1} player{solo ? '' : 's'} · {total} survivor{total === 1 ? '' : 's'} (1 to 6 players, at most 6 survivors)</span>
       </p>
-      <button className="primary" type="submit" disabled={list.length < 1 || total > 6 || inviteSelf}>Create and send invites</button>
+      {solo && (
+        <p className="dim">
+          Playing alone? You control every survivor and take each turn in order. The board game suggests {soloPer}.{' '}
+          {per !== soloPer && <button type="button" className="link" onClick={() => setPer(soloPer)}>Use {soloPer} survivors</button>}
+        </p>
+      )}
+      <h3>Survivors</h3>
+      <p className="dim">Pick who each player controls, or leave Auto to have the rest handed out in order. <button type="button" className="link" onClick={() => setGuide(true)}>Read about the survivors</button></p>
+      {players.map((p) => (
+        <div key={p.pi} className="srow">
+          <b style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{p.label}</b>
+          <span className="grow" />
+          {chosen(p.pi).map((v, s) => (
+            <span key={s} className="start" style={{ gap: 6 }}>
+              {v && <Portrait id={v} size={28} />}
+              <select value={v} onChange={(e) => setPick(p.pi, s, e.target.value)} aria-label={`Survivor ${s + 1} for ${p.label}`}>
+                <option value="">Auto</option>
+                {CHARACTERS.map((c) => <option key={c.id} value={c.id} disabled={taken.has(c.id) && c.id !== v}>{c.name} ({c.role})</option>)}
+              </select>
+            </span>
+          ))}
+        </div>
+      ))}
+      <button className="primary" type="submit" style={{ marginTop: 12 }} disabled={total > 6 || inviteSelf}>{solo ? 'Create solo game' : 'Create and send invites'}</button>
       {inviteSelf && <span className="err"> That is your own email. You are added automatically, so remove it from the invites.</span>}
       {err && <span className="err"> {err}</span>}
-      <p className="dim">Survivors are assigned in roster order; you can see who has whom in the lobby.</p>
+      <p className="dim">You can see who has whom in the lobby.</p>
+      {guide && <Rulebook start="survivors" onClose={() => setGuide(false)} />}
     </form>
   );
 }

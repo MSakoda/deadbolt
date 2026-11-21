@@ -7,6 +7,7 @@ import { describeAll, type LogLine } from './log';
 import type { Online } from './online';
 import { survivorNames } from './OnlineApp';
 import { Portrait } from './Portrait';
+import { Rulebook } from './Rulebook';
 
 const POLL_MS = 10_000;
 
@@ -108,6 +109,7 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
 
 function LobbyScreen({ view, me, onExit, refresh }: { view: GameView; me: Me['user']; onExit(): void; refresh(): Promise<void> }) {
   const [err, setErr] = useState('');
+  const [rules, setRules] = useState<string | null>(null);
   const g = view.game;
   const mine = g.members.find((m) => m.userId === me.id);
   const allJoined = g.members.every((m) => m.status === 'joined');
@@ -139,6 +141,8 @@ function LobbyScreen({ view, me, onExit, refresh }: { view: GameView; me: Me['us
             {allJoined ? 'Start game' : 'Waiting for players to join'}
           </button>
         )}
+        <button onClick={() => setRules('overview')}>Rulebook</button>
+        <button onClick={() => setRules('survivors')}>Survivor guide</button>
         <button onClick={() => refresh()}>Refresh</button>
         <button onClick={onExit}>My games</button>
         {view.you.role === 'host' && (
@@ -146,6 +150,7 @@ function LobbyScreen({ view, me, onExit, refresh }: { view: GameView; me: Me['us
         )}
         {err && <span className="err">{err}</span>}
       </section>
+      {rules && <Rulebook start={rules} onClose={() => setRules(null)} />}
     </div>
   );
 }

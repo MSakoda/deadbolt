@@ -121,6 +121,59 @@ describe('games', () => {
     expect((await call(a, 'POST', `/api/games/${id}/start`)).status).toBe(200);
   });
 
+  it('lets the host choose survivors for everyone and fills the rest automatically', async () => {
+    const a = await signIn('a@x.com');
+    const made = await call(a, 'POST', '/api/games', {
+      name: 'G', survivorsPerPlayer: 1, hostCharIds: ['jonah'], players: [{ email: 'b@x.com', charIds: ['dana'] }, { email: 'c@x.com' }],
+    });
+    expect(made.status).toBe(201);
+    const by = Object.fromEntries(made.json.game.members.map((m: any) => [m.role === 'host' ? 'a' : m.email ?? m.userId, m.charIds]));
+    expect(by.a).toEqual(['jonah']);
+    const all = made.json.game.members.flatMap((m: any) => m.charIds);
+    expect(new Set(all).size).toBe(3);
+    expect(all).toContain('dana');
+    // The unchosen player never gets a survivor somebody already picked.
+    const c = made.json.game.members.find((m: any) => m.email === 'c@x.com');
+    expect(['jonah', 'dana']).not.toContain(c.charIds[0]);
+  });
+
+  it('lets one player control all six survivors, with no turn emails or nudges', async () => {
+    const a = await signIn('a@x.com');
+    const made = await call(a, 'POST', '/api/games', { name: 'Solo', survivorsPerPlayer: 6, players: [] });
+    expect(made.status).toBe(201);
+    const id = made.json.game.id as string;
+    expect(made.json.game.members).toHaveLength(1);
+    expect(new Set(made.json.game.members[0].charIds).size).toBe(6);
+    expect((await call(a, 'POST', `/api/games/${id}/start`)).status).toBe(200);
+
+    const v = (await call(a, 'GET', `/api/games/${id}`)).json;
+    expect(v.game.activeOwner).toBe(v.you.userId);
+    // The same player is up again after every survivor.
+    expect((await call(a, 'POST', `/api/games/${id}/actions`, { actions: [{ type: 'end_turn' }] })).status).toBe(200);
+    expect((await call(a, 'GET', `/api/games/${id}`)).json.game.activeOwner).toBe(v.you.userId);
+
+    const sent = mailer.outbox.length;
+    clock += 200 * 3600_000;
+    await service.runJobs();
+    expect(mailer.outbox.slice(sent).filter((m) => m.subject.includes('Solo'))).toEqual([]);
+  });
+
+  it('allows a single-survivor solo game and still caps players at six', async () => {
+    const a = await signIn('a@x.com');
+    expect((await call(a, 'POST', '/api/games', { name: 'One', players: [] })).status).toBe(201);
+    const many = ['b', 'c', 'd', 'e', 'f', 'g'].map((n) => ({ email: `${n}@x.com` }));
+    expect((await call(a, 'POST', '/api/games', { name: 'Seven', players: many })).status).toBe(400);
+  });
+
+  it('rejects unknown, duplicated and too many chosen survivors', async () => {
+    const a = await signIn('a@x.com');
+    const make = (extra: object) => call(a, 'POST', '/api/games', { name: 'G', players: [{ email: 'b@x.com' }], ...extra });
+    expect((await make({ hostCharIds: ['nobody'] })).status).toBe(400);
+    expect((await make({ hostCharIds: ['dana'], players: [{ email: 'b@x.com', charIds: ['dana'] }] })).status).toBe(400);
+    expect((await make({ hostCharIds: ['dana', 'ray'] })).status).toBe(400);
+    expect((await call(a, 'GET', '/api/me')).json.games).toEqual([]);
+  });
+
   it('rejects a host who invites themself, in any letter case', async () => {
     const a = await signIn('a@x.com');
     const r = await call(a, 'POST', '/api/games', { name: 'G', players: [{ email: 'b@x.com' }, { email: ' A@X.com ' }] });

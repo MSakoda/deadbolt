@@ -240,6 +240,8 @@ export class Service {
     input: {
       name: string;
       players: { email: string; charIds?: string[] }[];
+      /** Survivors the host wants for themself; the rest are handed out automatically. */
+      hostCharIds?: string[];
       survivorsPerPlayer?: number;
       scenarioId?: string;
     },
@@ -253,13 +255,17 @@ export class Service {
     // The host is always seat 1; other players follow in the order given.
     const emails = [host.email, ...others.map((p) => p.email)];
     if (new Set(emails).size !== emails.length) throw new HttpError(400, 'duplicate player');
-    if (emails.length < 2 || emails.length > 6) throw new HttpError(400, '2 to 6 players');
+    if (emails.length > 6) throw new HttpError(400, 'at most 6 players');
     if (!Number.isInteger(per) || per < 1 || emails.length * per > 6)
       throw new HttpError(400, 'at most 6 survivors in total');
-    const chosen = new Map(others.map((p) => [p.email, p.charIds]));
+    const chosen = new Map<string, string[] | undefined>([[host.email, input.hostCharIds], ...others.map((p) => [p.email, p.charIds] as const)]);
     const known = new Set(CHARACTERS.map((c) => c.id));
-    const taken = new Set(others.flatMap((p) => p.charIds ?? []));
-    if ([...taken].some((c) => !known.has(c))) throw new HttpError(400, 'unknown character');
+    const picks = [...chosen.values()].map((l) => l ?? []);
+    if (picks.some((l) => !Array.isArray(l) || l.length > per)) throw new HttpError(400, 'too many survivors chosen for one player');
+    const all = picks.flat();
+    if (all.some((c) => !known.has(c))) throw new HttpError(400, 'unknown character');
+    if (new Set(all).size !== all.length) throw new HttpError(400, 'each survivor can only be chosen once');
+    const taken = new Set(all);
     const pool = CHARACTERS.map((c) => c.id).filter((id) => !taken.has(id));
     const members: Member[] = [];
     for (const email of emails) {
@@ -367,7 +373,9 @@ export class Service {
       g.activeOwner = owner;
       g.turnKey += 1;
       g.activeSince = this.now();
-      if (owner) await this.queueTurnJobs(g, owner);
+      // A solo game has nobody else to wait for, so no "your turn" emails or nudges.
+      const solo = new Set(g.members.map((m) => m.userId)).size === 1;
+      if (owner && !solo) await this.queueTurnJobs(g, owner);
     }
     await this.saveGame(g);
   }

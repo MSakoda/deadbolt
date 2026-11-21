@@ -94,6 +94,7 @@ export function buildApp({ service, jobSecret, staticDir }: AppOptions): Fastify
     const g = await service.createGame(u, {
       name: String(b.name ?? ''),
       players: Array.isArray(b.players) ? (b.players as { email: string; charIds?: string[] }[]) : [],
+      hostCharIds: Array.isArray(b.hostCharIds) ? (b.hostCharIds as string[]) : undefined,
       survivorsPerPlayer: typeof b.survivorsPerPlayer === 'number' ? b.survivorsPerPlayer : undefined,
       scenarioId: typeof b.scenarioId === 'string' ? b.scenarioId : undefined,
     });

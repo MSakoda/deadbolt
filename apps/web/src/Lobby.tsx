@@ -39,7 +39,7 @@ export function Lobby({ onStart, onResume, onBack }: { onStart(r: LobbyResult): 
   return (
     <div className="lobby">
       <h1>Deadbolt</h1>
-      <p className="sub">The Long Block &middot; easy &middot; 2 to 6 players, fully cooperative. This is the hot-seat version: everyone shares one screen.</p>
+      <p className="sub">The Long Block &middot; easy &middot; 1 to 6 players, fully cooperative. This is the hot-seat version: everyone shares one screen.</p>
 
       <section>
         <h2>Players</h2>
