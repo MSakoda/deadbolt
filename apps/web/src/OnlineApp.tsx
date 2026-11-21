@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CHARACTER_BY_ID, CHARACTERS, defaultSurvivorsPerPlayer } from '@deadbolt/engine';
 import { api, ApiError, type GameSummary, type Me } from './api';
 import { OnlineGame } from './OnlineGame';
+import { logoUrl } from './art';
 import { Portrait } from './Portrait';
 import { Rulebook } from './Rulebook';
 import { ReplayFromToken } from './Replay';
@@ -60,7 +61,7 @@ function SignIn({ onHotseat }: { onHotseat(): void }) {
   };
   return (
     <div className="lobby">
-      <h1>Deadbolt</h1>
+      <h1 className="brand"><img src={logoUrl} alt="" width="48" height="48" />Deadbolt</h1>
       <p className="sub">A cooperative zombie survival game you play at your own pace. When it is your turn, you get an email.</p>
       <section>
         <h2>Sign in</h2>
@@ -94,7 +95,7 @@ function Dashboard({ me, reload, open, openReplay, onHotseat }: { me: Me; reload
   const needs = me.games.filter((g) => g.yourTurn);
   return (
     <div className="lobby">
-      <h1>Deadbolt</h1>
+      <h1 className="brand"><img src={logoUrl} alt="" width="48" height="48" />Deadbolt</h1>
       <p className="sub">Signed in as {me.user.email}.</p>
 
       <section>

@@ -10,6 +10,7 @@ import {
   type GameEvent,
   type GameState,
 } from '@deadbolt/engine';
+import { renderEmail, type EmailContent } from './email';
 import type { Mailer } from './mail';
 import type { Store } from './store';
 import {
@@ -176,10 +177,11 @@ export class Service {
     );
     if (recent.length >= 5) throw new HttpError(429, 'too many sign-in requests; try again later');
     const link = await this.loginLink(e, next ?? '/', LOGIN_TTL);
-    await this.mailer.send({
-      to: e,
-      subject: 'Your Deadbolt sign-in link',
-      text: `Open this link to sign in (valid for 30 minutes, works once):\n\n${link}\n`,
+    await this.mail(e, 'Your Deadbolt sign-in link', {
+      title: 'Sign in to Deadbolt',
+      paragraphs: ['Press the button to sign in. The link works once and expires in 30 minutes.', 'If you did not ask for this, you can ignore this email.'],
+      button: { label: 'Sign in', url: link },
+      preheader: 'Your one-time sign-in link',
     });
   }
 
@@ -306,10 +308,14 @@ export class Service {
       if (m.status === 'joined') continue;
       const u = await this.getUser(m.userId);
       const link = await this.loginLink(u.email, `/games/${g.id}`, MAIL_LINK_TTL);
-      await this.mailer.send({
-        to: u.email,
-        subject: `${host.name} invited you to play "${g.name}"`,
-        text: `${host.name} invited you to a Deadbolt game, "${g.name}".\n\nOpen the game and join:\n${link}\n`,
+      await this.mail(u.email, `${host.name} invited you to play "${g.name}"`, {
+        title: `${host.name} invited you to a game`,
+        paragraphs: [
+          `You are invited to play "${g.name}", a cooperative zombie survival game. You play at your own pace: when it is your turn, you get an email.`,
+          'Open the game to join and see who is playing.',
+        ],
+        button: { label: 'Open the game and join', url: link },
+        preheader: `Join "${g.name}" on Deadbolt`,
       });
     }
     return g;
@@ -447,10 +453,12 @@ export class Service {
       }
       if (!lines.length) continue;
       const link = await this.loginLink(u.email, '/', MAIL_LINK_TTL);
-      await this.mailer.send({
-        to: u.email,
-        subject: 'Deadbolt: what happened in your games',
-        text: `Since your last digest:\n\n${lines.join('\n')}\n\n${link}\n`,
+      await this.mail(u.email, 'Deadbolt: what happened in your games', {
+        title: 'What happened in your games',
+        paragraphs: ['Here is what has changed since your last summary.'],
+        items: lines.map((l) => l.replace(/^- /, '')),
+        button: { label: 'Open Deadbolt', url: link },
+        preheader: 'A summary of your games',
       });
       u.digest = { date, seqs };
       await this.store.put('users', u.id, u);
@@ -465,23 +473,26 @@ export class Service {
     const link = await this.loginLink(user.email, `/games/${g.id}`, MAIL_LINK_TTL);
     const round = g.state?.round ?? 1;
     if (j.type === 'turn') {
-      await this.mailer.send({
-        to: user.email,
-        subject: `[${g.name}] Your turn - round ${round}`,
-        text: `It is your turn in "${g.name}" (round ${round}).\n\n${link}\n`,
+      await this.mail(user.email, `[${g.name}] Your turn - round ${round}`, {
+        title: 'It is your turn',
+        paragraphs: [`The group is waiting on you in "${g.name}" (round ${round}).`],
+        button: { label: 'Take your turn', url: link },
+        preheader: `Your turn in "${g.name}"`,
       });
     } else if (j.type === 'nudge') {
-      await this.mailer.send({
-        to: user.email,
-        subject: `[${g.name}] Reminder: the group is waiting on you`,
-        text: `Your turn in "${g.name}" has been waiting since ${new Date(g.activeSince ?? 0).toUTCString()}.\n\n${link}\n`,
+      await this.mail(user.email, `[${g.name}] Reminder: the group is waiting on you`, {
+        title: 'The group is waiting on you',
+        paragraphs: [`Your turn in "${g.name}" has been waiting since ${new Date(g.activeSince ?? 0).toUTCString()}.`],
+        button: { label: 'Take your turn', url: link },
+        preheader: `Your turn in "${g.name}" is waiting`,
       });
     } else {
       const who = active?.name ?? 'A player';
-      await this.mailer.send({
-        to: user.email,
-        subject: `[${g.name}] ${who} has not moved - skip or hand over?`,
-        text: `${who} has not taken their turn after the last reminder.\nAs host you can skip their turn or hand their survivor to someone else:\n\n${link}\n`,
+      await this.mail(user.email, `[${g.name}] ${who} has not moved - skip or hand over?`, {
+        title: `${who} has not moved`,
+        paragraphs: [`${who} has not taken their turn after the last reminder in "${g.name}".`, 'As host, you can skip their turn or hand their survivor to someone else.'],
+        button: { label: 'Open the game', url: link },
+        preheader: `${who} has not taken their turn`,
       });
     }
   }
@@ -642,7 +653,7 @@ export class Service {
       events.push(...r.events);
       await this.append(g, hostId, 'host', { type: 'skip', owner: g.activeOwner }, events);
       await this.afterChange(g);
-      await this.notifyAll(g, `[${g.name}] Turn skipped by the host`, `The host skipped a turn in "${g.name}".\n\n${this.baseUrl}/games/${g.id}\n`);
+      await this.notifyAll(g, `[${g.name}] Turn skipped by the host`, `The host skipped a turn in "${g.name}".`);
       return { seq: g.seq };
     });
   }
@@ -662,7 +673,7 @@ export class Service {
       sv.owner = toUserId;
       await this.append(g, hostId, 'host', { type: 'handover', charId, from: from?.userId, to: toUserId }, []);
       await this.afterChange(g);
-      await this.notifyAll(g, `[${g.name}] A survivor changed hands`, `The host handed a survivor to another player in "${g.name}".\n\n${this.baseUrl}/games/${g.id}\n`);
+      await this.notifyAll(g, `[${g.name}] A survivor changed hands`, `The host handed a survivor to another player in "${g.name}".`);
       return { seq: g.seq };
     });
   }
@@ -681,7 +692,7 @@ export class Service {
       for (const m of g.members) {
         if (m.userId === hostId) continue;
         const u = await this.getUser(m.userId);
-        await this.mailer.send({ to: u.email, subject: `[${g.name}] The game was cancelled`, text: `The host cancelled "${g.name}". No more turns will be taken.\n` });
+        await this.mail(u.email, `[${g.name}] The game was cancelled`, { title: 'Game cancelled', paragraphs: [`The host cancelled "${g.name}". No more turns will be taken.`] });
       }
       return { seq: g.seq };
     });
@@ -698,7 +709,7 @@ export class Service {
       g.hostId = toUserId;
       await this.append(g, hostId, 'host', { type: 'transfer_host', to: toUserId }, []);
       await this.saveGame(g);
-      await this.notifyAll(g, `[${g.name}] New host`, `The host role in "${g.name}" moved to a new player.\n\n${this.baseUrl}/games/${g.id}\n`);
+      await this.notifyAll(g, `[${g.name}] New host`, `The host role in "${g.name}" moved to a new player.`);
       return { seq: g.seq };
     });
   }
@@ -728,10 +739,19 @@ export class Service {
     });
   }
 
-  private async notifyAll(g: Game, subject: string, text: string): Promise<void> {
+  private async notifyAll(g: Game, subject: string, message: string): Promise<void> {
     for (const m of g.members) {
       const u = await this.getUser(m.userId);
-      await this.mailer.send({ to: u.email, subject, text });
+      await this.mail(u.email, subject, {
+        title: subject.replace(/^\[[^\]]*\]\s*/, ''),
+        paragraphs: [message],
+        button: { label: 'Open the game', url: `${this.baseUrl}/games/${g.id}` },
+      });
     }
+  }
+
+  /** Every email goes through here so they all share one look, with a plain-text twin. */
+  private mail(to: string, subject: string, c: EmailContent): Promise<void> {
+    return this.mailer.send({ to, subject, ...renderEmail({ ...c, baseUrl: this.baseUrl }) });
   }
 }

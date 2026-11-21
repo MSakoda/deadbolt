@@ -8,7 +8,8 @@
     "start": "tsx src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "gmail-token": "tsx scripts/gmail-token.ts"
+    "gmail-token": "tsx scripts/gmail-token.ts",
+    "email-preview": "tsx scripts/preview-emails.ts"
   },
   "dependencies": {
     "@deadbolt/engine": "*",

@@ -108,7 +108,7 @@ export function TipBody({ state, t, ownerName }: { state: GameState; t: HoverTar
       ? 'A face-down marker. It hides either the keys or a free item. Stand here and use Take objective to flip it.'
       : o.kind === 'fuel' ? 'The fuel can. Take it, then bring it to the truck.'
       : o.kind === 'keys' ? 'The truck keys. Take them.' : 'Supplies: a free item draw.';
-    return <><div className="tip-h"><b>{o.hidden ? '? marker' : o.kind === 'fuel' ? 'Fuel can' : o.kind === 'keys' ? 'Keys' : 'Supplies'}</b> <span className="dim">{zn(t.id)}</span></div><div>{text}</div></>;
+    return <><div className="tip-h"><b>{o.hidden ? 'Mystery bundle' : o.kind === 'fuel' ? 'Fuel can' : o.kind === 'keys' ? 'Keys' : 'Supplies'}</b> <span className="dim">{zn(t.id)}</span></div><div>{text}</div></>;
   }
 
   const living = Object.values(state.survivors).filter((v) => v.alive).length;

@@ -1,9 +1,12 @@
+import { randomBytes } from 'node:crypto';
 import { HttpError } from './types';
 
 export interface Mail {
   to: string;
   subject: string;
   text: string;
+  /** Styled version. Sent together with `text`, which stays as the fallback. */
+  html?: string;
 }
 
 export interface Mailer {
@@ -39,7 +42,7 @@ export class ResendMailer implements Mailer {
       res = await this.fetchFn('https://api.resend.com/emails', {
         method: 'POST',
         headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: this.from, to: [mail.to], subject: mail.subject, text: mail.text }),
+        body: JSON.stringify({ from: this.from, to: [mail.to], subject: mail.subject, text: mail.text, ...(mail.html ? { html: mail.html } : {}) }),
       });
     } catch (e) {
       console.error('resend: request failed', (e as Error).message);
@@ -66,20 +69,20 @@ export interface GmailConfig {
 const oneLine = (s: string): string => s.replace(/[\r\n]+/g, ' ').trim();
 const encodedWord = (s: string): string => `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
 
-/** A plain-text RFC 822 message, UTF-8, ready for the Gmail API (which wants it base64url). */
+/** An RFC 822 message, UTF-8 (multipart text + HTML when there is HTML), ready for the Gmail API (which wants it base64url). */
 export function rawMessage(from: { name?: string; address: string }, mail: Mail): string {
   const fromHeader = from.name ? `${encodedWord(oneLine(from.name))} <${oneLine(from.address)}>` : oneLine(from.address);
-  const body = Buffer.from(mail.text, 'utf8').toString('base64').replace(/.{1,76}/g, '$&\r\n');
-  const msg = [
-    `From: ${fromHeader}`,
-    `To: ${oneLine(mail.to)}`,
-    `Subject: ${encodedWord(oneLine(mail.subject))}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: base64',
-    '',
-    body,
-  ].join('\r\n');
+  const b64 = (t: string): string => Buffer.from(t, 'utf8').toString('base64').replace(/.{1,76}/g, (chunk) => chunk + '\r\n');
+  const common = [`From: ${fromHeader}`, `To: ${oneLine(mail.to)}`, `Subject: ${encodedWord(oneLine(mail.subject))}`, 'MIME-Version: 1.0'];
+  let msg: string;
+  if (mail.html) {
+    const boundary = `=_deadbolt_${randomBytes(12).toString('hex')}`;
+    const part = (type: string, body: string): string =>
+      `--${boundary}\r\nContent-Type: ${type}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${b64(body)}`;
+    msg = [...common, `Content-Type: multipart/alternative; boundary="${boundary}"`, '', part('text/plain', mail.text) + part('text/html', mail.html) + `--${boundary}--\r\n`].join('\r\n');
+  } else {
+    msg = [...common, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64(mail.text)].join('\r\n');
+  }
   return Buffer.from(msg, 'utf8').toString('base64url');
 }
 

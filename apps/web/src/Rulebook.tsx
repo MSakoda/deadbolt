@@ -85,7 +85,7 @@ function Movement() {
       <p>The board is made of zones: <b>street</b> zones, <b>rooms</b> inside buildings, and the open <b>yard</b>. You move one zone at a time, up, down, left or right, never diagonally.</p>
       <h3>Doors</h3>
       <ul>
-        <li>Doors start <b>locked</b> (brown bar). Opening one needs a weapon <b>in hand</b> that can: <b>Crowbar</b> (silent), <b>Fire axe</b> or <b>Chainsaw</b> (both noisy). Machetes, pistols, shotguns and the frying pan cannot.</li>
+        <li>Doors start <b>locked</b> (a brown bar with a padlock). Opening one needs a weapon <b>in hand</b> that can: <b>Crowbar</b> (silent), <b>Fire axe</b> or <b>Chainsaw</b> (both noisy). Machetes, pistols, shotguns and the frying pan cannot.</li>
         <li>Once open, a door stays open for everyone, <b>zombies included</b>. There is no way to close it again.</li>
         <li>The first time any door of a building is opened, <b>every room in that building spawns zombies</b>. You can see and hear the whole building fill up, so be ready.</li>
         <li>The Shop&rsquo;s front door starts open with the Shop empty so the group can always get inside.</li>
@@ -246,7 +246,7 @@ function Spawning() {
   return (
     <>
       <h3>Spawn points</h3>
-      <p>Spawn points have a <b>red border</b> on the board. Each round, each active spawn point draws a card from the 22-card spawn deck. The <b>Yard</b> is always active; the <b>Kitchen</b> only becomes active once the dining room building has been opened.</p>
+      <p>Spawn points have a <b>red border and a manhole</b> on the board. Each round, each active spawn point draws a card from the 22-card spawn deck. The <b>Yard</b> is always active; the <b>Kitchen</b> only becomes active once the dining room building has been opened.</p>
       <h3>Danger level</h3>
       <p>What the card produces depends on the <b>highest level of any living survivor</b>: Quiet (0), Restless (level 1), Swarming (level 2) or Overrun (level 3). The more experienced your best fighter, the bigger the waves. The card is read for that level:</p>
       <Table head={['Card', 'Copies', 'Quiet', 'Restless', 'Swarming', 'Overrun']} rows={SPAWN_CARDS.map((c) => [
@@ -305,14 +305,14 @@ function Scenario() {
       <h3>What to find</h3>
       <ul>
         <li><b>Keys:</b> hidden under one of three <b>?</b> markers: the Stock room, the Bedroom and the Flat. The other two hold a free item each.</li>
-        <li><b>Fuel can (F):</b> in the Workshop.</li>
+        <li><b>Fuel can:</b> in the Workshop.</li>
       </ul>
       <h3>Buildings</h3>
       <Table head={['Building', 'Rooms', 'Notes']} rows={[
-        ['Shop', 'Shop, Stock room', 'Front door starts open and the Shop is empty. The Stock room fills when the inner door is opened. ? marker in the Stock room.'],
-        ['Hall', 'Hall, Bedroom', '? marker in the Bedroom.'],
+        ['Shop', 'Shop, Stock room', 'Front door starts open and the Shop is empty. The Stock room fills when the inner door is opened. Mystery bundle in the Stock room.'],
+        ['Hall', 'Hall, Bedroom', 'Mystery bundle in the Bedroom.'],
         ['Workshop', 'Workshop, Office', 'The fuel can is in the Workshop.'],
-        ['Lobby', 'Lobby, Flat', '? marker in the Flat.'],
+        ['Lobby', 'Lobby, Flat', 'Mystery bundle in the Flat.'],
         ['Dining room', 'Dining room, Kitchen', 'The Kitchen is a spawn point once this building has been opened.'],
       ]} />
       <p>The <b>Yard</b>, south of Main street, is open ground and a spawn point from the start.</p>

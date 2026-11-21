@@ -1,6 +1,6 @@
 import { Application, Assets, Circle, Container, Graphics, Rectangle, Sprite, Text, type Texture } from 'pixi.js';
 import { CHARACTER_BY_ID, getScenario } from '@deadbolt/engine';
-import { portraitUrl, zombieUrl, ZOMBIE_ART } from './art';
+import { BOARD_ART, boardUrl, portraitUrl, zombieUrl, ZOMBIE_ART } from './art';
 import type { GameEvent, GameState, ZombieType, ZoneId } from '@deadbolt/engine';
 
 export const CELL_W = 190;
@@ -47,6 +47,7 @@ async function loadPortraits(): Promise<void> {
   const jobs = [
     ...Object.keys(SURVIVOR_COLORS).map((id) => [id, portraitUrl(id)] as const),
     ...ZOMBIE_ART.map((t) => ['z:' + t, zombieUrl(t)] as const),
+    ...BOARD_ART.map((n) => ['b:' + n, boardUrl(n)] as const),
   ];
   await Promise.all(jobs.map(async ([key, url]) => {
     if (portraits.has(key)) return;
@@ -66,6 +67,9 @@ export class BoardView {
   private zoneText = new Map<ZoneId, Text>();
   private doorHit = new Map<string, Container>();
   private markers = new Map<ZoneId, Container>();
+  private truckSprite?: Sprite;
+  private spawnSprites = new Map<ZoneId, Sprite>();
+  private lockSprites = new Map<string, Sprite>();
   private survivors = new Map<string, Tok>();
   private zombies = new Map<string, Tok>();
   private floats: Float[] = [];
@@ -298,6 +302,7 @@ export class BoardView {
       if (z.spawn) {
         const on = !z.spawn.afterBuilding || state.filled[z.spawn.afterBuilding];
         g.roundRect(x + 4, y + 4, CELL_W - 8, CELL_H - 8, 8).stroke({ width: 2, color: on ? 0xc0392b : 0x5b3a37, alpha: 0.8 });
+        this.drawSpawn(z.id, x, y, !!on);
       }
       const hint = hints.zones[z.id];
       if (hint) {
@@ -330,6 +335,7 @@ export class BoardView {
       } else {
         g.roundRect(x - w / 2, y - h / 2, w, h, 3).fill(0x9a6a33).stroke({ width: 1, color: 0x5d3d17 });
       }
+      this.drawLock(e.id, x, y, !open);
       if (hints.doors[e.id]) {
         g.circle(x, y, 20).stroke({ width: 3, color: 0xffb74d });
       }
@@ -345,11 +351,23 @@ export class BoardView {
     const ready = state.team.keys && state.team.fuel;
     const body = ready ? 0x43a047 : 0x6b7280;
     const cx = x + CELL_W / 2 - 40, cy = y + 90;
-    g.roundRect(cx, cy, 56, 30, 4).fill(body);
-    g.roundRect(cx + 56, cy + 9, 24, 21, 4).fill(body);
-    g.rect(cx + 62, cy + 13, 12, 8).fill(0x12151b);
-    g.circle(cx + 14, cy + 32, 7).fill(0x12151b).stroke({ width: 2, color: 0x9aa4b2 });
-    g.circle(cx + 66, cy + 32, 7).fill(0x12151b).stroke({ width: 2, color: 0x9aa4b2 });
+    const tex = portraits.get('b:truck');
+    if (tex) {
+      if (!this.truckSprite) {
+        this.truckSprite = new Sprite(tex);
+        this.truckSprite.anchor.set(0.5);
+        this.truckSprite.scale.set(88 / tex.width);
+        this.labelLayer.addChild(this.truckSprite);
+      }
+      this.truckSprite.position.set(cx + 42, cy + 21);
+      if (ready) g.roundRect(cx - 8, cy - 8, 100, 58, 10).fill({ color: 0x43a047, alpha: 0.18 }).stroke({ width: 2, color: 0x66bb6a });
+    } else {
+      g.roundRect(cx, cy, 56, 30, 4).fill(body);
+      g.roundRect(cx + 56, cy + 9, 24, 21, 4).fill(body);
+      g.rect(cx + 62, cy + 13, 12, 8).fill(0x12151b);
+      g.circle(cx + 14, cy + 32, 7).fill(0x12151b).stroke({ width: 2, color: 0x9aa4b2 });
+      g.circle(cx + 66, cy + 32, 7).fill(0x12151b).stroke({ width: 2, color: 0x9aa4b2 });
+    }
     if (!this.truckLabel) {
       this.truckLabel = label('', 12, 0xffffff, true);
       this.truckLabel.anchor.set(0.5, 0);
@@ -366,6 +384,36 @@ export class BoardView {
     this.truckLabel.position.set(x + CELL_W / 2, y + 28);
   }
 
+  private drawSpawn(id: ZoneId, x: number, y: number, on: boolean): void {
+    const tex = portraits.get('b:spawn');
+    if (!tex) return;
+    let sp = this.spawnSprites.get(id);
+    if (!sp) {
+      sp = new Sprite(tex);
+      sp.anchor.set(0.5);
+      sp.scale.set(38 / Math.max(tex.width, tex.height));
+      this.labelLayer.addChild(sp);
+      this.spawnSprites.set(id, sp);
+    }
+    sp.position.set(x + CELL_W - 28, y + CELL_H - 26);
+    sp.alpha = on ? 1 : 0.35;
+  }
+
+  private drawLock(id: string, x: number, y: number, locked: boolean): void {
+    const tex = portraits.get('b:padlock');
+    if (!tex) return;
+    let sp = this.lockSprites.get(id);
+    if (!sp) {
+      sp = new Sprite(tex);
+      sp.anchor.set(0.5);
+      sp.scale.set(24 / Math.max(tex.width, tex.height));
+      this.doorLayer.addChild(sp);
+      this.lockSprites.set(id, sp);
+    }
+    sp.position.set(x, y);
+    sp.visible = locked;
+  }
+
   private drawMarker(zoneId: ZoneId, state: GameState): void {
     const m = this.markers.get(zoneId)!;
     m.removeChildren();
@@ -373,6 +421,15 @@ export class BoardView {
     if (!tok) return;
     const ch = tok.hidden ? '?' : tok.kind === 'fuel' ? 'F' : tok.kind === 'keys' ? 'K' : 'S';
     const color = tok.hidden ? 0xffd54f : tok.kind === 'fuel' ? 0xff7043 : tok.kind === 'keys' ? 0x4dd0e1 : 0x9ccc65;
+    const art = portraits.get('b:' + (tok.hidden ? 'mystery' : tok.kind === 'fuel' ? 'fuel' : tok.kind === 'keys' ? 'keys' : 'supplies'));
+    if (art) {
+      const plate = new Graphics().roundRect(-16, -16, 32, 32, 8).fill({ color: 0x12151b, alpha: 0.75 }).stroke({ width: 2, color });
+      const pic = new Sprite(art);
+      pic.anchor.set(0.5);
+      pic.scale.set(27 / Math.max(art.width, art.height));
+      m.addChild(plate, pic);
+      return;
+    }
     const g = new Graphics().roundRect(-13, -13, 26, 26, 6).fill(color);
     const t = label(ch, 17, 0x1b1b1b, true);
     t.anchor.set(0.5);

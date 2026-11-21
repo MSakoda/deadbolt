@@ -576,3 +576,26 @@ describe('Gmail mailer', () => {
     } finally { console.error = orig; }
   });
 });
+
+describe('email look', () => {
+  it('sends the invitation as styled HTML with the text version, and escapes the game name', async () => {
+    const a = await signIn('a@x.com');
+    await call(a, 'POST', '/api/games', { name: 'Bob\'s <b>game</b>', players: [{ email: 'b@x.com' }] });
+    const m = lastMail('b@x.com');
+    expect(m.subject).toMatch(/invited you to play/);
+    expect(m.html).toContain('Open the game and join');
+    expect(m.html).not.toContain('<b>game</b>');
+    expect(m.html).toContain('&lt;b&gt;game&lt;/b&gt;');
+    expect(m.text).toMatch(/token=[\w-]+/);
+  });
+
+  it('gives every kind of email an HTML version', async () => {
+    const g = await startedGame();
+    await call(g.a, 'POST', `/api/games/${g.id}/host/skip`);
+    await call(g.a, 'POST', `/api/games/${g.id}/host/cancel`);
+    await service.runJobs();
+    const withoutHtml = mailer.outbox.filter((m) => !m.html);
+    expect(withoutHtml).toEqual([]);
+    expect(mailer.outbox.length).toBeGreaterThan(3);
+  });
+});
