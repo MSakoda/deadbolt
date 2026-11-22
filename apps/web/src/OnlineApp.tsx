@@ -66,7 +66,7 @@ function SignIn({ onHotseat }: { onHotseat(): void }) {
       <section>
         <h2>Sign in</h2>
         {sent ? (
-          <p>Check <b>{email}</b> for a sign-in link. It works once and expires in 30 minutes.</p>
+          <p>If <b>{email}</b> has been invited to a game or approved as a host, a sign-in link is on its way. It works once and expires in 30 minutes. Nothing arrives? Ask whoever invited you to check the address.</p>
         ) : (
           <form className="start" onSubmit={submit}>
             <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -74,7 +74,7 @@ function SignIn({ onHotseat }: { onHotseat(): void }) {
             {err && <span className="err">{err}</span>}
           </form>
         )}
-        <p className="dim">No password. New email addresses get an account automatically.</p>
+        <p className="dim">No password. Sign-in links go to people who were invited to a game and to approved hosts.</p>
       </section>
       <section><button onClick={onHotseat}>Play hot-seat on this device instead</button></section>
     </div>
@@ -84,7 +84,9 @@ function SignIn({ onHotseat }: { onHotseat(): void }) {
 function Dashboard({ me, reload, open, openReplay, onHotseat }: { me: Me; reload(): Promise<void>; open(id: string): void; openReplay(token: string): void; onHotseat(): void }) {
   const [creating, setCreating] = useState(false);
   const [rules, setRules] = useState(false);
+  const [admin, setAdmin] = useState(false);
   const [name, setName] = useState(me.user.name);
+  const canHost = me.canHost !== false;
 
   // First visit: remember the browser's timezone so the daily digest goes out at 8 AM local time.
   useEffect(() => {
@@ -100,21 +102,63 @@ function Dashboard({ me, reload, open, openReplay, onHotseat }: { me: Me; reload
 
       <section>
         <h2>My games {needs.length > 0 && <span className="tag bad">{needs.length} waiting for you</span>}</h2>
-        {me.games.length === 0 && <p className="dim">No games yet. Create one and invite your friends by email.</p>}
+        {me.games.length === 0 && <p className="dim">{canHost ? 'No games yet. Create one and invite your friends by email.' : 'No games yet. When someone invites you to a game it shows up here.'}</p>}
         {me.games.map((g) => <GameRow key={g.id} g={g} open={() => open(g.id)} replay={g.replay ? () => openReplay(g.replay!) : undefined} />)}
-        <p><button className="primary" onClick={() => setCreating(!creating)}>{creating ? 'Cancel' : 'New game'}</button></p>
-        {creating && <CreateGame myEmail={me.user.email} onCreated={open} />}
+        {canHost ? (
+          <p><button className="primary" onClick={() => setCreating(!creating)}>{creating ? 'Cancel' : 'New game'}</button></p>
+        ) : (
+          <p className="dim">Games are started by approved hosts. Ask the site owner if you would like to host your own.</p>
+        )}
+        {canHost && creating && <CreateGame myEmail={me.user.email} onCreated={open} />}
       </section>
 
       <section className="start">
         <label>Your name <input value={name} onChange={(e) => setName(e.target.value)} /></label>
         <button onClick={() => api('PATCH', '/me', { name }).then(reload)}>Save</button>
         <span className="grow" />
+        {me.isAdmin && <button onClick={() => setAdmin(true)}>Manage hosts</button>}
         <button onClick={() => setRules(true)}>Rulebook</button>
         <button onClick={onHotseat}>Hot-seat mode</button>
         <button onClick={() => api('POST', '/auth/logout').then(reload)}>Sign out</button>
       </section>
       {rules && <Rulebook onClose={() => setRules(false)} />}
+      {admin && <HostsModal onClose={() => setAdmin(false)} />}
+    </div>
+  );
+}
+
+/** Owner only: who may start games. Players they invite can play but not host. */
+function HostsModal({ onClose }: { onClose(): void }) {
+  const [list, setList] = useState<{ admins: string[]; hosts: { email: string; addedAt: number }[] } | null>(null);
+  const [email, setEmail] = useState('');
+  const [err, setErr] = useState('');
+  const load = useCallback(() => api<{ admins: string[]; hosts: { email: string; addedAt: number }[] }>('GET', '/admin/hosts').then(setList).catch((e: Error) => setErr(e.message)), []);
+  useEffect(() => { void load(); }, [load]);
+  const run = async (path: string, address: string) => {
+    setErr('');
+    try { await api('POST', path, { email: address }); setEmail(''); await load(); } catch (e) { setErr((e as Error).message); }
+  };
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Approved hosts</h2>
+        <p className="dim">Only the owner and the people below can start games. Anyone they invite can play, but cannot start games or invite others.</p>
+        {list?.admins.map((a) => <div key={a} className="srow"><b>{a}</b><span className="tag">owner</span></div>)}
+        {list?.hosts.map((h) => (
+          <div key={h.email} className="srow">
+            <b style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{h.email}</b>
+            <span className="grow" />
+            <button onClick={() => { if (confirm(`Stop ${h.email} from starting new games? Their current games keep running.`)) void run('/admin/hosts/remove', h.email); }}>Remove</button>
+          </div>
+        ))}
+        {list && list.hosts.length === 0 && <p className="dim">No other hosts yet.</p>}
+        <form className="start" onSubmit={(e) => { e.preventDefault(); void run('/admin/hosts', email); }}>
+          <input type="email" required placeholder="Friend's email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+          <button className="primary" type="submit">Add host</button>
+        </form>
+        {err && <p className="err">{err}</p>}
+        <p><button onClick={onClose}>Close</button></p>
+      </div>
     </div>
   );
 }
@@ -129,6 +173,7 @@ function GameRow({ g, open, replay }: { g: GameSummary; open(): void; replay?: (
       <button className="link" onClick={open}><b>{g.name}</b></button>
       <span className="dim">{STATUS[g.status]}{g.round ? ` · round ${g.round}` : ''}</span>
       {g.yourTurn && <span className="tag bad">your turn</span>}
+      {!!g.chatUnread && <span className="tag chatdot" title="Unread chat messages">{g.chatUnread} new chat</span>}
       <span className="grow" />
       {replay && <button onClick={replay}>Replay</button>}
       <button onClick={open}>Open</button>

@@ -27,6 +27,10 @@ export async function api<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH', path: str
 
 export interface Me {
   user: { id: string; email: string; name: string; tz?: string };
+  /** False for players who were only invited; they can join games but not start them. */
+  canHost?: boolean;
+  /** The site owner, who approves hosts. */
+  isAdmin?: boolean;
   games: GameSummary[];
 }
 
@@ -36,6 +40,8 @@ export interface GameSummary {
   status: 'lobby' | 'active' | 'won' | 'lost' | 'abandoned';
   round: number;
   yourTurn: boolean;
+  /** Chat messages from others that you have not read. */
+  chatUnread?: number;
   activeSince: number | null;
   replay?: string;
 }

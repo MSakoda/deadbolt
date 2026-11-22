@@ -11,6 +11,7 @@ import { InventoryModal, SearchModal } from './Modals';
 import { describeAll, type LogLine } from './log';
 import { save, type Saved } from './persist';
 import { Goal, Legend } from './Legend';
+import { ChatModal } from './Chat';
 import { Rulebook } from './Rulebook';
 import { SurvivorCard } from './SurvivorCard';
 import { Portrait } from './Portrait';
@@ -49,7 +50,8 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   const [toast, setToast] = useState('');
   const [inv, setInv] = useState(false);
   const [rules, setRules] = useState(false);
-  const [bigLog, setBigLog] = useState(false);
+  /** Which popup is open from the buttons on the board. */
+  const [panel, setPanel] = useState<'goal' | 'log' | 'chat' | null>(null);
   const [hover, setHover] = useState<{ t: HoverTarget; x: number; y: number; sticky?: boolean } | null>(null);
   const [prefer, setPrefer] = useState<ZombieType | ''>('');
   const host = useRef<HTMLDivElement>(null);
@@ -260,7 +262,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   }, [online?.remote]);
 
   // Scroll only the log itself; scrollIntoView would also scroll the page and push the board away.
-  useEffect(() => { const el = logEnd.current?.parentElement; if (el) el.scrollTop = el.scrollHeight; }, [g.log.length]);
+  useEffect(() => { if (panel !== 'log') return; const el = logEnd.current?.parentElement; if (el) el.scrollTop = el.scrollHeight; }, [panel, g.log.length]);
 
   const has = (type: Action['type']) => legal.some((a) => a.type === type);
   const turn = state.turn;
@@ -311,6 +313,9 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
           <span className={state.team.fuel ? 'ok' : 'dim'}>Fuel {state.team.fuel ? '✓' : '—'}</span>
         </div>
         <div className="hudbtns">
+          <button onClick={() => setPanel('goal')}>Goal</button>
+          <button onClick={() => setPanel('log')}>Log</button>
+          {online?.chat && <button onClick={() => setPanel('chat')}>Chat{online.chat.unread > 0 && <span className="badge">{online.chat.unread > 9 ? '9+' : online.chat.unread}</span>}</button>}
           <button onClick={() => setRules(true)}>Rulebook</button>
           {online?.topExtra}
           <button onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings">&#9881;</button>
@@ -342,27 +347,36 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
             </div>
           </div>
         )}
-        {hover && !bigLog && (
+        {hover && !panel && (
           <div className="tip" style={{ left: Math.max(8, Math.min(hover.x + 16, window.innerWidth - 336)), top: Math.max(8, Math.min(hover.y + 16, window.innerHeight - 340)) }}>
             <TipBody state={state} t={hover.t} ownerName={ownerName} />
           </div>
         )}
-        {bigLog && (
-          <div className="modal-bg" onClick={() => setBigLog(false)}>
+        {panel === 'goal' && (
+          <div className="modal-bg" onClick={() => setPanel(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <Goal state={state} />
+              <p><button onClick={() => setPanel(null)}>Close</button></p>
+            </div>
+          </div>
+        )}
+        {panel === 'log' && (
+          <div className="modal-bg" onClick={() => setPanel(null)}>
             <div className="modal huge" onClick={(e) => e.stopPropagation()}>
-              <div className="loghead"><h3>Game log</h3><button onClick={() => setBigLog(false)}>Close</button></div>
+              <div className="loghead"><h3>What happened</h3><button onClick={() => setPanel(null)}>Close</button></div>
               <div className="log full">
                 {g.log.map((l, i) => <div key={i} className={'ln ' + l.kind}>{l.text}</div>)}
+                <div ref={logEnd} />
               </div>
             </div>
           </div>
         )}
+        {panel === 'chat' && online?.chat && <ChatModal chat={online.chat} myId={online.myId} names={online.names} onClose={() => setPanel(null)} />}
         {state.pending && actor && canAct && <SearchModal state={state} actor={actor} dispatch={dispatch} />}
         {inv && actor && canAct && <InventoryModal state={state} actor={actor} cost={reorgCost} dispatch={(a) => { if (dispatch(a)) setInv(false); }} onClose={() => setInv(false)} />}
       </div>
 
       <aside className="side">
-        <Goal state={state} />
         {actor && turn && <SurvivorCard actor={actor} turn={turn} owner={ownerName(actor.owner)} zone={zname(actor.zone)} />}
 
         {actor && !canAct && state.status === 'active' && (
@@ -434,13 +448,6 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
           })}
         </div>
 
-        <div className="card logcard">
-          <div className="loghead"><b>What happened</b><button className="mini" onClick={() => setBigLog(true)}>Expand</button></div>
-          <div className="log">
-            {g.log.slice(-200).map((l, i) => <div key={i} className={'ln ' + l.kind}>{l.text}</div>)}
-            <div ref={logEnd} />
-          </div>
-        </div>
         <details className="card">
           <summary><b>Legend: what the icons mean</b></summary>
           <Legend />

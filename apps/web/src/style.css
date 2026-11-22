@@ -63,9 +63,7 @@ button.mini { padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
 .roster .rrow { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: 13px; }
 .rrow.cur { font-weight: 700; } .rrow.dead { opacity: .45; text-decoration: line-through; }
 .side > .card { flex: none; }
-.side > .logcard { flex: 1 0 auto; display: flex; flex-direction: column; min-height: 320px; }
 .loghead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.logcard .log { flex: 1; overflow-y: auto; min-height: 260px; max-height: 420px; }
 .log { font-size: 13px; }
 .modal.huge { max-width: 820px; height: min(80vh, 760px); display: flex; flex-direction: column; }
 .log.full { flex: 1; overflow-y: auto; }
@@ -93,9 +91,9 @@ button.mini { padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
   .game { grid-template-columns: minmax(0, 1fr); grid-template-rows: 62vh auto; height: auto; min-height: 100%; }
   .boardwrap { height: 62vh; min-width: 0; }
   .side { border-left: 0; border-top: 1px solid var(--line); min-width: 0; overflow-y: visible; }
-  .hudbtns { flex-direction: column; --hudbtn-w: 96px; }
+  .hudbtns { top: auto; bottom: 10px; left: 62px; right: 10px; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
   .hudbtns button { padding: 5px 10px; font-size: 12.5px; }
-  .hud { --hudbtn-w: 110px; padding: 5px 9px; gap: 0 10px; font-size: 12.5px; }
+  .hud { --hudbtn-w: 0px; padding: 5px 9px; gap: 0 10px; font-size: 12.5px; }
   .lobby { padding: 20px 12px 60px; }
   .modal { max-width: calc(100vw - 16px); max-height: 92vh; overflow-y: auto; }
   .btns button { padding: 9px 12px; }
@@ -265,3 +263,15 @@ button.danger:hover { background: #3a1d1c; }
   .toast { position: fixed; bottom: 14px; z-index: 31; max-width: calc(100vw - 24px); }
   .banner { position: fixed; bottom: 14px; z-index: 30; max-width: calc(100vw - 24px); }
 }
+
+/* Chat */
+.badge { display: inline-block; margin-left: 6px; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.tag.chatdot { background: #1d3a4a; color: var(--accent); border-color: var(--accent); }
+.modal.chat { max-width: 560px; height: min(80vh, 680px); display: flex; flex-direction: column; }
+.chatlist { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 8px; min-height: 0; }
+.cmsg { align-self: flex-start; max-width: 88%; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.cmsg.mine { align-self: flex-end; background: #1b2c3a; border-color: #2d5368; }
+.chead { display: flex; gap: 10px; align-items: baseline; font-size: 12px; }
+.ctext { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.4; }
+.chatform { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
+.chatform textarea { flex: 1; min-width: 0; resize: none; font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }

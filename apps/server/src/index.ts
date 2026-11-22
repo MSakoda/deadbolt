@@ -27,10 +27,17 @@ const mailer: Mailer = gmail.GMAIL_REFRESH_TOKEN && gmail.GMAIL_CLIENT_ID && gma
     : new ConsoleMailer();
 console.log(mailer instanceof GmailMailer ? `mail: Gmail (${gmail.GMAIL_USER})` : mailer instanceof ResendMailer ? 'mail: Resend' : 'mail: printed to this log (set the GMAIL_* variables to send real email)');
 
+// ADMIN_EMAILS (comma separated) names the site owners. Once set, only owners and hosts they approve (in the app) can start games,
+// and sign-in emails go only to people already known. Unset keeps the site open to everyone.
+const adminEmails = (process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim()).filter(Boolean);
+console.log(adminEmails.length ? `access: owners and approved hosts only (${adminEmails.length} owner${adminEmails.length === 1 ? '' : 's'})` : 'access: OPEN to anyone (set ADMIN_EMAILS to restrict who can host and sign in)');
+
 const service = new Service({
   store,
   mailer,
   baseUrl,
+  adminEmails,
+  dailyMailCap: process.env.MAIL_DAILY_CAP ? Number(process.env.MAIL_DAILY_CAP) : undefined,
 });
 // Production: serve the built web app from this same server (npm run build first).
 const staticDir = process.env.STATIC_DIR ?? fileURLToPath(new URL('../../web/dist', import.meta.url));

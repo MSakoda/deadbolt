@@ -4,7 +4,7 @@ import type { Action, GameEvent, GameState } from '@deadbolt/engine';
 import { api, ApiError, type GameView, type Me } from './api';
 import { Game } from './Game';
 import { describeAll, type LogLine } from './log';
-import type { Online } from './online';
+import type { ChatMsg, Online } from './online';
 import { survivorNames } from './OnlineApp';
 import { Portrait } from './Portrait';
 import { Rulebook } from './Rulebook';
@@ -18,6 +18,26 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
   const seq = useRef(0);
   const [replayToken, setReplayToken] = useState<string | undefined>();
   const [initial, setInitial] = useState<{ state: GameState; log: LogLine[] } | null>(null);
+  const [chat, setChat] = useState<{ messages: ChatMsg[]; unread: number }>({ messages: [], unread: 0 });
+  const chatAt = useRef(0);
+
+  const loadChat = async () => {
+    try {
+      const r = await api<{ messages: ChatMsg[]; unread: number }>('GET', `/games/${id}/chat?since=${chatAt.current}`);
+      if (r.messages.length) chatAt.current = r.messages[r.messages.length - 1]!.at;
+      setChat((c) => {
+        const have = new Set(c.messages.map((m) => m.id));
+        const fresh = r.messages.filter((m) => !have.has(m.id));
+        return { messages: fresh.length ? [...c.messages, ...fresh] : c.messages, unread: r.unread };
+      });
+    } catch { /* chat is optional; the next poll tries again */ }
+  };
+  const markChatRead = () => {
+    const at = chatAt.current;
+    if (!at) return;
+    setChat((c) => (c.unread ? { ...c, unread: 0 } : c));
+    void api('POST', `/games/${id}/chat/seen`, { at }).catch(() => undefined);
+  };
 
   const apply = (v: GameView, first: boolean) => {
     setView(v);
@@ -46,6 +66,7 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
         apply(v, first && v.state !== null);
         if (v.state) first = false;
         setErr('');
+        if (v.state) void loadChat();
       } catch (e) {
         if (!stop) setErr(e instanceof ApiError ? e.message : 'Connection problem');
       }
@@ -85,6 +106,21 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
     names,
     remote,
     replayToken,
+    chat: {
+      messages: chat.messages,
+      unread: chat.unread,
+      async send(text: string) {
+        try {
+          await api('POST', `/games/${id}/chat`, { text });
+          await loadChat();
+          return undefined;
+        } catch (e) {
+          return (e as Error).message;
+        }
+      },
+      markRead: markChatRead,
+      refresh: () => void loadChat(),
+    },
     async send(actions: Action[]) {
       try {
         const r = await api<{ state: GameState; events: GameEvent[]; seq: number; replay?: string }>('POST', `/games/${id}/actions`, { actions });

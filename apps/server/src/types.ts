@@ -21,6 +21,16 @@ export interface Member {
   charIds: string[];
   /** Highest log seq this member has seen (for the recap). */
   lastSeenSeq: number;
+  /** Time (ms) of the newest chat message this member has read. */
+  chatSeenAt?: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  gameId: string;
+  userId: string;
+  at: number;
+  text: string;
 }
 
 export interface Game {

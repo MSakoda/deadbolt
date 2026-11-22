@@ -76,7 +76,7 @@ export function buildApp({ service, jobSecret, staticDir }: AppOptions): Fastify
   // ---- account ----
   app.get('/me', async (req) => {
     const u = await auth(req);
-    return { user: { id: u.id, email: u.email, name: u.name, tz: u.tz }, games: await service.listGames(u.id) };
+    return { user: { id: u.id, email: u.email, name: u.name, tz: u.tz }, canHost: await service.canHost(u), isAdmin: service.isAdmin(u), games: await service.listGames(u.id) };
   });
   app.patch('/me', async (req) => {
     const u = await auth(req);
@@ -85,6 +85,17 @@ export function buildApp({ service, jobSecret, staticDir }: AppOptions): Fastify
     if (b.name !== undefined) n = await service.setName(u.id, String(b.name));
     if (b.tz !== undefined) n = await service.setTimezone(u.id, String(b.tz));
     return { user: { id: n.id, email: n.email, name: n.name, tz: n.tz } };
+  });
+
+  // ---- owner: who may host ----
+  app.get('/admin/hosts', async (req) => service.listHosts(await auth(req)));
+  app.post('/admin/hosts', async (req) => {
+    await service.addHost(await auth(req), String(body(req).email ?? ''));
+    return { ok: true };
+  });
+  app.post('/admin/hosts/remove', async (req) => {
+    await service.removeHost(await auth(req), String(body(req).email ?? ''));
+    return { ok: true };
   });
 
   // ---- games ----
@@ -128,6 +139,23 @@ export function buildApp({ service, jobSecret, staticDir }: AppOptions): Fastify
     const u = await auth(req);
     const b = body(req);
     return service.act((req.params as P).id, u.id, (Array.isArray(b.actions) ? b.actions : [b.action]) as Action[]);
+  });
+
+  app.get('/games/:id/chat', async (req) => {
+    const u = await auth(req);
+    const since = (req.query as { since?: string }).since;
+    return service.chat((req.params as P).id, u.id, since === undefined ? 0 : Number(since) || 0);
+  });
+
+  app.post('/games/:id/chat', async (req) => {
+    const u = await auth(req);
+    return { message: await service.postChat((req.params as P).id, u.id, body(req).text) };
+  });
+
+  app.post('/games/:id/chat/seen', async (req) => {
+    const u = await auth(req);
+    await service.chatSeen((req.params as P).id, u.id, Number(body(req).at));
+    return { ok: true };
   });
 
   app.post('/games/:id/seen', async (req) => {

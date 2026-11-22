@@ -15,6 +15,7 @@ import type { Mailer } from './mail';
 import type { Store } from './store';
 import {
   HttpError,
+  type ChatMessage,
   type EmailJob,
   type Game,
   type LogEntry,
@@ -24,6 +25,9 @@ import {
   type User,
 } from './types';
 
+const CHAT_MAX = 1000;
+
+interface HostDoc { email: string; addedAt: number; addedBy: string; active: boolean }
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -39,6 +43,10 @@ export interface Deps {
   mailer: Mailer;
   baseUrl: string;
   now?: () => number;
+  /** Owners of the site. When set, only they and the hosts they approve can start games, and sign-in links go only to people already known. */
+  adminEmails?: string[];
+  /** Most emails sent per day (UTC). Protects the sending account from floods. */
+  dailyMailCap?: number;
 }
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -90,8 +98,12 @@ export class Service {
   readonly mailer: Mailer;
   readonly baseUrl: string;
   readonly now: () => number;
+  private admins: Set<string>;
+  private mailCap: number;
 
   constructor(d: Deps) {
+    this.admins = new Set((d.adminEmails ?? []).map(normEmail).filter(Boolean));
+    this.mailCap = d.dailyMailCap ?? 200;
     this.store = d.store;
     this.mailer = d.mailer;
     this.baseUrl = d.baseUrl.replace(/\/$/, '');
@@ -121,6 +133,47 @@ export class Service {
     const u: User = { id: randomUUID(), email: e, name: e.split('@')[0] ?? e, createdAt: this.now() };
     await this.store.put('users', u.id, u);
     return u;
+  }
+
+  // ---- who may host (owner-managed) ----
+
+  /** True once ADMIN_EMAILS is set. Until then the site stays open, as before. */
+  get restricted(): boolean {
+    return this.admins.size > 0;
+  }
+
+  isAdmin(u: { email: string }): boolean {
+    return this.admins.has(normEmail(u.email));
+  }
+
+  async canHost(u: { email: string }): Promise<boolean> {
+    if (!this.restricted || this.isAdmin(u)) return true;
+    const h = await this.store.get<HostDoc>('hosts', normEmail(u.email));
+    return !!h && h.active;
+  }
+
+  private requireAdmin(u: User): void {
+    if (!this.isAdmin(u)) throw new HttpError(403, 'only the site owner can do that');
+  }
+
+  async listHosts(admin: User): Promise<{ admins: string[]; hosts: { email: string; addedAt: number }[] }> {
+    this.requireAdmin(admin);
+    const hosts = (await this.store.list<HostDoc>('hosts')).filter((h) => h.active && !this.admins.has(h.email));
+    return { admins: [...this.admins], hosts: hosts.map((h) => ({ email: h.email, addedAt: h.addedAt })).sort((a, b) => a.email.localeCompare(b.email)) };
+  }
+
+  async addHost(admin: User, email: string): Promise<void> {
+    this.requireAdmin(admin);
+    const e = normEmail(email ?? '');
+    if (!EMAIL_RE.test(e)) throw new HttpError(400, 'invalid email');
+    await this.store.put<HostDoc>('hosts', e, { email: e, addedAt: this.now(), addedBy: admin.id, active: true });
+  }
+
+  async removeHost(admin: User, email: string): Promise<void> {
+    this.requireAdmin(admin);
+    const e = normEmail(email ?? '');
+    const h = await this.store.get<HostDoc>('hosts', e);
+    if (h) await this.store.put<HostDoc>('hosts', e, { ...h, active: false });
   }
 
   async getUser(id: string): Promise<User> {
@@ -172,6 +225,8 @@ export class Service {
   async requestLogin(email: string, next?: string): Promise<void> {
     const e = normEmail(email ?? '');
     if (!EMAIL_RE.test(e)) throw new HttpError(400, 'invalid email');
+    // Strangers get the same answer but no email, so the site cannot be used to mail arbitrary addresses.
+    if (this.restricted && !(await this.userByEmail(e)) && !(await this.canHost({ email: e }))) return;
     const recent = (await this.store.list<LoginToken>('tokens')).filter(
       (t) => t.email === e && t.createdAt > this.now() - HOUR,
     );
@@ -248,6 +303,7 @@ export class Service {
       scenarioId?: string;
     },
   ): Promise<Game> {
+    if (!(await this.canHost(host))) throw new HttpError(403, 'only approved hosts can start games; ask the site owner to add you');
     const name = (input.name ?? '').trim().slice(0, 60);
     if (!name) throw new HttpError(400, 'game name required');
     const per = input.survivorsPerPlayer ?? 1;
@@ -501,7 +557,9 @@ export class Service {
 
   async listGames(userId: string) {
     const games = (await this.store.list<Game>('games')).filter((g) => this.member(g, userId));
-    return games.map((g) => ({
+    const unread = await Promise.all(games.map(async (g) => this.unreadIn(await this.chatList(g.id), this.member(g, userId)!, userId)));
+    return games.map((g, i) => ({
+      chatUnread: unread[i]!,
       id: g.id,
       name: g.name,
       status: g.status,
@@ -548,6 +606,54 @@ export class Service {
         seq, at, actor, kind, action, events,
       })),
     };
+  }
+
+  // ---- chat (never sends email) ----
+
+  private async chatList(gameId: string): Promise<ChatMessage[]> {
+    return (await this.store.list<ChatMessage>('chat', `${gameId}:`)).sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+  }
+
+  private unreadIn(all: ChatMessage[], m: Member, userId: string): number {
+    return all.filter((c) => c.userId !== userId && c.at > (m.chatSeenAt ?? 0)).length;
+  }
+
+  /** Messages newer than `since` (all of the latest 200 when omitted) plus how many you have not read. */
+  async chat(gameId: string, userId: string, since = 0): Promise<{ messages: ChatMessage[]; unread: number }> {
+    const g = await this.getGame(gameId);
+    const m = this.requireMember(g, userId);
+    const all = await this.chatList(gameId);
+    return { messages: all.filter((c) => c.at > since).slice(-200), unread: this.unreadIn(all, m, userId) };
+  }
+
+  async postChat(gameId: string, userId: string, text: unknown): Promise<ChatMessage> {
+    const g = await this.getGame(gameId);
+    this.requireMember(g, userId);
+    if (g.status === 'abandoned') throw new HttpError(400, 'this game was cancelled');
+    const t = typeof text === 'string' ? text.replace(/\r\n/g, '\n').trim() : '';
+    if (!t) throw new HttpError(400, 'write a message first');
+    if (t.length > CHAT_MAX) throw new HttpError(400, `messages can be at most ${CHAT_MAX} characters`);
+    const now = this.now();
+    const mine = (await this.chatList(gameId)).filter((c) => c.userId === userId && c.at > now - 60_000);
+    if (mine.length >= 15) throw new HttpError(429, 'slow down a little');
+    // Keep ids strictly increasing in time so two messages in the same millisecond keep their order.
+    const last = mine[mine.length - 1];
+    const at = last && last.at >= now ? last.at + 1 : now;
+    const msg: ChatMessage = { id: `${String(at).padStart(14, '0')}-${randomBytes(3).toString('hex')}`, gameId, userId, at, text: t };
+    await this.store.put('chat', `${gameId}:${msg.id}`, msg);
+    return msg;
+  }
+
+  async chatSeen(gameId: string, userId: string, at: number): Promise<void> {
+    await this.lock(gameId, async () => {
+      const g = await this.getGame(gameId);
+      const m = this.requireMember(g, userId);
+      const upTo = Number(at) || 0;
+      if (upTo > (m.chatSeenAt ?? 0)) {
+        m.chatSeenAt = upTo;
+        await this.saveGame(g);
+      }
+    });
   }
 
   async markSeen(gameId: string, userId: string, seq: number): Promise<void> {
@@ -750,8 +856,17 @@ export class Service {
     }
   }
 
+  /** Counts today's sends and refuses past the daily cap. Queued emails simply wait for tomorrow. */
+  private async countMail(): Promise<void> {
+    const key = 'mail-' + new Date(this.now()).toISOString().slice(0, 10);
+    const d = (await this.store.get<{ n: number }>('meta', key)) ?? { n: 0 };
+    if (d.n >= this.mailCap) throw new HttpError(429, 'the daily email limit was reached; try again tomorrow');
+    await this.store.put('meta', key, { n: d.n + 1 });
+  }
+
   /** Every email goes through here so they all share one look, with a plain-text twin. */
-  private mail(to: string, subject: string, c: EmailContent): Promise<void> {
+  private async mail(to: string, subject: string, c: EmailContent): Promise<void> {
+    await this.countMail();
     return this.mailer.send({ to, subject, ...renderEmail({ ...c, baseUrl: this.baseUrl }) });
   }
 }

@@ -599,3 +599,102 @@ describe('email look', () => {
     expect(mailer.outbox.length).toBeGreaterThan(3);
   });
 });
+
+describe('game chat', () => {
+  it('lets members talk, tracks unread per player and never sends email', async () => {
+    const g = await startedGame();
+    const mailsBefore = mailer.outbox.length;
+    expect((await call(g.a, 'POST', `/api/games/${g.id}/chat`, { text: '  Go east first  ' })).json.message.text).toBe('Go east first');
+    clock += 5000;
+    await call(g.b, 'POST', `/api/games/${g.id}/chat`, { text: 'Agreed <b>x</b>' });
+    const forA = (await call(g.a, 'GET', `/api/games/${g.id}/chat`)).json;
+    expect(forA.messages.map((m: any) => m.text)).toEqual(['Go east first', 'Agreed <b>x</b>']);
+    expect(forA.unread).toBe(1); // only the other player's message counts
+    const forB = (await call(g.b, 'GET', `/api/games/${g.id}/chat`)).json;
+    expect(forB.unread).toBe(1);
+    expect((await call(g.a, 'GET', `/api/me`)).json.games[0].chatUnread).toBe(1);
+    await call(g.a, 'POST', `/api/games/${g.id}/chat/seen`, { at: forA.messages[1].at });
+    expect((await call(g.a, 'GET', `/api/games/${g.id}/chat`)).json.unread).toBe(0);
+    expect((await call(g.a, 'GET', `/api/games/${g.id}/chat?since=${forA.messages[0].at}`)).json.messages).toHaveLength(1);
+    expect(mailer.outbox.length).toBe(mailsBefore);
+  });
+
+  it('keeps order for messages sent in the same millisecond', async () => {
+    const g = await startedGame();
+    for (const t of ['one', 'two', 'three']) await call(g.a, 'POST', `/api/games/${g.id}/chat`, { text: t });
+    expect((await call(g.b, 'GET', `/api/games/${g.id}/chat`)).json.messages.map((m: any) => m.text)).toEqual(['one', 'two', 'three']);
+  });
+
+  it('rejects outsiders, empty, over-long and too-fast messages', async () => {
+    const g = await startedGame();
+    const c = await signIn('c@x.com');
+    expect((await call(c, 'GET', `/api/games/${g.id}/chat`)).status).toBe(404);
+    expect((await call(c, 'POST', `/api/games/${g.id}/chat`, { text: 'hi' })).status).toBe(404);
+    expect((await call(g.a, 'POST', `/api/games/${g.id}/chat`, { text: '   ' })).status).toBe(400);
+    expect((await call(g.a, 'POST', `/api/games/${g.id}/chat`, { text: 'x'.repeat(1001) })).status).toBe(400);
+    for (let i = 0; i < 15; i++) expect((await call(g.a, 'POST', `/api/games/${g.id}/chat`, { text: `m${i}` })).status).toBe(200);
+    expect((await call(g.a, 'POST', `/api/games/${g.id}/chat`, { text: 'one more' })).status).toBe(429);
+    clock += 61_000;
+    expect((await call(g.a, 'POST', `/api/games/${g.id}/chat`, { text: 'later' })).status).toBe(200);
+  });
+});
+
+describe('owner-managed access', () => {
+  const useOwner = (cap?: number) => {
+    mailer = new ConsoleMailer(true);
+    service = new Service({ store: new MemoryStore(), mailer, baseUrl: 'http://x.test', now: () => clock, adminEmails: ['Owner@x.com'], dailyMailCap: cap });
+    app = buildApp({ service, jobSecret: 'secret' });
+  };
+  beforeEach(() => useOwner());
+
+  it('sends no sign-in email to strangers, and the answer looks the same', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/auth/request', payload: { email: 'stranger@x.com' } });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ ok: true });
+    expect(mailer.outbox).toHaveLength(0);
+    const o = await signIn('owner@x.com'); // owners can always sign in, in any letter case
+    expect((await call(o, 'GET', '/api/me')).json).toMatchObject({ canHost: true, isAdmin: true });
+  });
+
+  it('lets the owner approve hosts; their invitees can sign in and play but not host or manage hosts', async () => {
+    const o = await signIn('owner@x.com');
+    expect((await call(o, 'POST', '/api/admin/hosts', { email: 'Host@x.com' })).status).toBe(200);
+    expect((await call(o, 'GET', '/api/admin/hosts')).json.hosts.map((h: any) => h.email)).toEqual(['host@x.com']);
+    const h = await signIn('host@x.com');
+    expect((await call(h, 'GET', '/api/me')).json).toMatchObject({ canHost: true, isAdmin: false });
+    const created = await call(h, 'POST', '/api/games', { name: 'G', players: [{ email: 'friend@x.com' }] });
+    expect(created.status).toBe(201);
+    const f = await signIn('friend@x.com'); // invited, so known
+    expect((await call(f, 'GET', '/api/me')).json.canHost).toBe(false);
+    expect((await call(f, 'POST', '/api/games', { name: 'Chain', players: [{ email: 'victim@x.com' }] })).status).toBe(403);
+    expect((await call(f, 'POST', '/api/admin/hosts', { email: 'victim@x.com' })).status).toBe(403);
+    expect((await call(h, 'GET', '/api/admin/hosts')).status).toBe(403);
+    expect(mailer.outbox.some((m) => m.to === 'victim@x.com')).toBe(false);
+  });
+
+  it('stops a removed host from starting games', async () => {
+    const o = await signIn('owner@x.com');
+    await call(o, 'POST', '/api/admin/hosts', { email: 'host@x.com' });
+    const h = await signIn('host@x.com');
+    await call(o, 'POST', '/api/admin/hosts/remove', { email: 'host@x.com' });
+    expect((await call(o, 'GET', '/api/admin/hosts')).json.hosts).toEqual([]);
+    expect((await call(h, 'POST', '/api/games', { name: 'G', players: [] })).status).toBe(403);
+  });
+
+  it('caps emails per day and starts over the next day', async () => {
+    useOwner(2);
+    for (let i = 0; i < 2; i++) expect((await app.inject({ method: 'POST', url: '/api/auth/request', payload: { email: 'owner@x.com' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/api/auth/request', payload: { email: 'owner@x.com' } })).statusCode).toBe(429);
+    expect(mailer.outbox).toHaveLength(2);
+    clock += 25 * 3600_000;
+    expect((await app.inject({ method: 'POST', url: '/api/auth/request', payload: { email: 'owner@x.com' } })).statusCode).toBe(200);
+  });
+
+  it('stays open when no owner is configured', async () => {
+    mailer = new ConsoleMailer(true);
+    service = new Service({ store: new MemoryStore(), mailer, baseUrl: 'http://x.test', now: () => clock });
+    app = buildApp({ service, jobSecret: 'secret' });
+    const a = await signIn('anyone@x.com');
+    expect((await call(a, 'POST', '/api/games', { name: 'G', players: [] })).status).toBe(201);
+  });
+});

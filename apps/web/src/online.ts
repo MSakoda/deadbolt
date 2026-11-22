@@ -13,4 +13,21 @@ export interface Online {
   /** Link token for the replay once the game has ended. */
   replayToken?: string;
   topExtra?: ReactNode;
+  chat?: {
+    messages: ChatMsg[];
+    unread: number;
+    /** Resolves to an error message, or nothing when sent. */
+    send(text: string): Promise<string | undefined>;
+    /** Call while the chat is open: marks everything as read. */
+    markRead(): void;
+    /** Fetch right away (the chat polls faster while open). */
+    refresh(): void;
+  };
+}
+
+export interface ChatMsg {
+  id: string;
+  userId: string;
+  at: number;
+  text: string;
 }

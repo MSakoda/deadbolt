@@ -22,3 +22,7 @@ services:
       # Any long random string. The GitHub Actions cron sends the same value in x-job-secret.
       - key: JOB_SECRET
         sync: false
+      # Your own email address (comma separate for more owners). Turns on owner-managed access: only owners and the hosts they approve
+      # in the app (Manage hosts) can start games, and sign-in emails go only to people already invited.
+      - key: ADMIN_EMAILS
+        sync: false
