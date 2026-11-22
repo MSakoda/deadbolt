@@ -257,3 +257,11 @@ button.danger:hover { background: #3a1d1c; }
 
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand img { flex: none; }
+
+/* Phone: the page scrolls, so results pinned to the board can be out of sight. Pin them to the screen instead. */
+@media (max-width: 900px) {
+  .dice-overlay { position: fixed; bottom: 14px; z-index: 30; max-width: calc(100vw - 24px); }
+  .phase-banner { position: fixed; top: 12px; z-index: 30; max-width: calc(100vw - 24px); }
+  .toast { position: fixed; bottom: 14px; z-index: 31; max-width: calc(100vw - 24px); }
+  .banner { position: fixed; bottom: 14px; z-index: 30; max-width: calc(100vw - 24px); }
+}
