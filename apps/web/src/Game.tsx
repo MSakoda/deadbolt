@@ -315,7 +315,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
         <div className="hudbtns">
           <button onClick={() => setPanel('goal')}>Goal</button>
           <button onClick={() => setPanel('log')}>Log</button>
-          {online?.chat && <button onClick={() => setPanel('chat')}>Chat{online.chat.unread > 0 && <span className="badge">{online.chat.unread > 9 ? '9+' : online.chat.unread}</span>}</button>}
+          {online?.chat && <button className={online.chat.unread > 0 ? 'unread' : undefined} onClick={() => setPanel('chat')}>Chat{online.chat.unread > 0 && <span className="badge">{online.chat.unread > 9 ? '9+' : online.chat.unread}</span>}</button>}
           <button onClick={() => setRules(true)}>Rulebook</button>
           {online?.topExtra}
           <button onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings">&#9881;</button>

@@ -33,7 +33,7 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 export const LOGIN_TTL = 30 * MINUTE;
 /** Links in invite and turn emails sit in an inbox for days. */
-export const MAIL_LINK_TTL = 7 * DAY;
+export const MAIL_LINK_TTL = 30 * DAY;
 export const SESSION_TTL = 30 * DAY;
 const DEFAULT_NUDGE_HOURS = [24, 72, 168];
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -208,13 +208,14 @@ export class Service {
   }
 
   /** Creates a single-use token and returns the link to put in an email. */
-  private async loginLink(email: string, next: string, ttl: number): Promise<string> {
+  private async loginLink(email: string, next: string, ttl: number, reusable = false): Promise<string> {
     const token = randomBytes(32).toString('base64url');
     const t: LoginToken = {
       hash: sha(token),
       email: normEmail(email),
       expires: this.now() + ttl,
       used: false,
+      reusable,
       next: this.safeNext(next),
       createdAt: this.now(),
     };
@@ -228,7 +229,7 @@ export class Service {
     // Strangers get the same answer but no email, so the site cannot be used to mail arbitrary addresses.
     if (this.restricted && !(await this.userByEmail(e)) && !(await this.canHost({ email: e }))) return;
     const recent = (await this.store.list<LoginToken>('tokens')).filter(
-      (t) => t.email === e && t.createdAt > this.now() - HOUR,
+      (t) => t.email === e && !t.reusable && t.createdAt > this.now() - HOUR,
     );
     if (recent.length >= 5) throw new HttpError(429, 'too many sign-in requests; try again later');
     const link = await this.loginLink(e, next ?? '/', LOGIN_TTL);
@@ -240,12 +241,19 @@ export class Service {
     });
   }
 
+  /** Where a link was meant to go, even when it can no longer be used (so the sign-in page can pick up from there). */
+  async linkTarget(token: string): Promise<string | undefined> {
+    return (await this.store.get<LoginToken>('tokens', sha(token)))?.next;
+  }
+
   /** Consumes a token; returns a session id (cookie value) and the page to land on. */
   async verifyLogin(token: string): Promise<{ session: string; next: string }> {
     const t = await this.store.get<LoginToken>('tokens', sha(token));
-    if (!t || t.used || t.expires < this.now()) throw new HttpError(400, 'this link is invalid or has expired');
-    t.used = true;
-    await this.store.put('tokens', t.hash, t);
+    if (!t || (t.used && !t.reusable) || t.expires < this.now()) throw new HttpError(400, 'this link is invalid or has expired');
+    if (!t.reusable) {
+      t.used = true;
+      await this.store.put('tokens', t.hash, t);
+    }
     const user = await this.ensureUser(t.email);
     const session = randomBytes(32).toString('base64url');
     const s: Session = { hash: sha(session), userId: user.id, expires: this.now() + SESSION_TTL };
@@ -363,7 +371,7 @@ export class Service {
     for (const m of members) {
       if (m.status === 'joined') continue;
       const u = await this.getUser(m.userId);
-      const link = await this.loginLink(u.email, `/games/${g.id}`, MAIL_LINK_TTL);
+      const link = await this.loginLink(u.email, `/games/${g.id}`, MAIL_LINK_TTL, true);
       await this.mail(u.email, `${host.name} invited you to play "${g.name}"`, {
         title: `${host.name} invited you to a game`,
         paragraphs: [
@@ -508,7 +516,7 @@ export class Service {
         lines.push(`- ${g.name} (round ${g.state?.round ?? 0}): ${bits.join(', ')}`);
       }
       if (!lines.length) continue;
-      const link = await this.loginLink(u.email, '/', MAIL_LINK_TTL);
+      const link = await this.loginLink(u.email, '/', MAIL_LINK_TTL, true);
       await this.mail(u.email, 'Deadbolt: what happened in your games', {
         title: 'What happened in your games',
         paragraphs: ['Here is what has changed since your last summary.'],
@@ -526,7 +534,7 @@ export class Service {
   private async sendJob(j: EmailJob, g: Game): Promise<void> {
     const user = await this.getUser(j.userId);
     const active = g.activeOwner ? await this.getUser(g.activeOwner) : undefined;
-    const link = await this.loginLink(user.email, `/games/${g.id}`, MAIL_LINK_TTL);
+    const link = await this.loginLink(user.email, `/games/${g.id}`, MAIL_LINK_TTL, true);
     const round = g.state?.round ?? 1;
     if (j.type === 'turn') {
       await this.mail(user.email, `[${g.name}] Your turn - round ${round}`, {

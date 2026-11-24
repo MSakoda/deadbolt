@@ -275,3 +275,10 @@ button.danger:hover { background: #3a1d1c; }
 .ctext { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.4; }
 .chatform { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
 .chatform textarea { flex: 1; min-width: 0; resize: none; font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+
+/* Chat button with unread messages: bright border and a slow glow so it gets noticed. */
+.hudbtns button.unread { border-color: var(--accent); color: #fff; background: #1b2c3a; box-shadow: 0 0 0 1px #4fc3f755, 0 0 14px #4fc3f777; animation: chatglow 2s ease-in-out infinite; }
+@keyframes chatglow { 50% { box-shadow: 0 0 0 1px #4fc3f7aa, 0 0 22px #4fc3f7aa; } }
+@media (prefers-reduced-motion: reduce) { .hudbtns button.unread { animation: none; } }
+
+.warn { color: var(--warn); }

@@ -71,6 +71,8 @@ export interface LoginToken {
   email: string;
   expires: number;
   used: boolean;
+  /** Links in game emails work again until they expire, so a mail scanner or a second device cannot burn them. */
+  reusable?: boolean;
   next: string;
   createdAt: number;
 }

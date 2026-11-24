@@ -69,14 +69,39 @@ describe('magic-link login', () => {
     await app.inject({ method: 'POST', url: '/api/auth/request', payload: { email: 'a@x.com' } });
     const t = tokenIn(lastMail('a@x.com'));
     expect((await app.inject({ method: 'GET', url: `/api/auth/verify?token=${t}` })).statusCode).toBe(302);
-    expect((await app.inject({ method: 'GET', url: `/api/auth/verify?token=${t}` })).statusCode).toBe(400);
+    // A used link sends the person to a fresh-link form, not a bare error.
+    const again = await app.inject({ method: 'GET', url: `/api/auth/verify?token=${t}` });
+    expect(again.statusCode).toBe(302);
+    expect(again.headers.location).toBe('http://x.test/?expired=1&next=%2F');
   });
 
   it('rejects an expired link', async () => {
     await app.inject({ method: 'POST', url: '/api/auth/request', payload: { email: 'a@x.com' } });
     clock += LOGIN_TTL + 1;
     const res = await app.inject({ method: 'GET', url: `/api/auth/verify?token=${tokenIn(lastMail('a@x.com'))}` });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toContain('/?expired=1');
+  });
+
+  it('lets a link from a game email work more than once, and sends a signed-in person on to the game when it finally expires', async () => {
+    const g = await startedGame();
+    await service.runJobs();
+    const up = await whoIsUp(g);
+    const upEmail = up.up === g.a ? 'a@x.com' : 'b@x.com';
+    const link = /(\/api\/auth\/verify\?token=[\w-]+)/.exec(lastMail(upEmail).text)![1]!;
+    const first = await app.inject({ method: 'GET', url: link });
+    const second = await app.inject({ method: 'GET', url: link }); // e.g. a mail scanner got there first
+    expect(first.statusCode).toBe(302);
+    expect(second.statusCode).toBe(302);
+    expect(second.headers['set-cookie']).toBeDefined();
+    expect(second.headers.location).toBe(`http://x.test/games/${g.id}`);
+    clock += 29 * 24 * 3600_000;
+    const fresh = await signIn(upEmail); // a session that outlives the emailed link
+    clock += 2 * 24 * 3600_000;
+    const late = await app.inject({ method: 'GET', url: link, headers: { cookie: fresh } });
+    expect(late.headers.location).toBe(`http://x.test/games/${g.id}`);
+    const stranger = await app.inject({ method: 'GET', url: link });
+    expect(stranger.headers.location).toBe(`http://x.test/?expired=1&next=${encodeURIComponent('/games/' + g.id)}`);
   });
 
   it('stores only a hash of the token and refuses open redirects', async () => {

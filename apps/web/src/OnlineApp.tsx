@@ -51,11 +51,16 @@ function SignIn({ onHotseat }: { onHotseat(): void }) {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState('');
+  // An old or already-used emailed link lands here with ?expired=1 and the page it was meant to open.
+  const params = new URLSearchParams(location.search);
+  const expired = params.get('expired') === '1';
+  const wanted = params.get('next');
+  const next = wanted && wanted.startsWith('/') && !wanted.startsWith('//') ? wanted : location.pathname;
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr('');
     try {
-      await api('POST', '/auth/request', { email, next: location.pathname });
+      await api('POST', '/auth/request', { email, next });
       setSent(true);
     } catch (x) { setErr((x as Error).message); }
   };
@@ -65,6 +70,7 @@ function SignIn({ onHotseat }: { onHotseat(): void }) {
       <p className="sub">A cooperative zombie survival game you play at your own pace. When it is your turn, you get an email.</p>
       <section>
         <h2>Sign in</h2>
+        {expired && !sent && <p className="warn">That email link has expired or was already used. Enter your email and we will send a fresh one{next.startsWith('/games/') ? ' that opens your game' : ''}.</p>}
         {sent ? (
           <p>If <b>{email}</b> has been invited to a game or approved as a host, a sign-in link is on its way. It works once and expires in 30 minutes. Nothing arrives? Ask whoever invited you to check the address.</p>
         ) : (

@@ -59,7 +59,17 @@ export function buildApp({ service, jobSecret, staticDir }: AppOptions): Fastify
 
   app.get('/auth/verify', async (req: FastifyRequest, reply: FastifyReply) => {
     const { token } = req.query as { token?: string };
-    const { session, next } = await service.verifyLogin(String(token ?? ''));
+    let verified: { session: string; next: string };
+    try {
+      verified = await service.verifyLogin(String(token ?? ''));
+    } catch (e) {
+      if (!(e instanceof HttpError) || e.status !== 400) throw e;
+      // An old or used link should not show a bare error. Signed-in people go straight to the page; others get a fresh-link form.
+      const target = await service.linkTarget(String(token ?? ''));
+      if (await service.userForSession(cookieOf(req))) return reply.redirect(`${service.baseUrl}${target ?? '/'}`);
+      return reply.redirect(`${service.baseUrl}/?expired=1${target ? `&next=${encodeURIComponent(target)}` : ''}`);
+    }
+    const { session, next } = verified;
     reply.header(
       'set-cookie',
       `${COOKIE}=${session}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL / 1000}${secure ? '; Secure' : ''}`,
