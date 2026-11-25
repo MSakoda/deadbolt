@@ -83,9 +83,10 @@ function Movement() {
     <>
       <h3>Zones</h3>
       <p>The board is made of zones: <b>street</b> zones, <b>rooms</b> inside buildings, and the open <b>yard</b>. You move one zone at a time, up, down, left or right, never diagonally.</p>
-      <h3>Doors</h3>
+      <h3>Walls and doors</h3>
       <ul>
-        <li>Doors start <b>locked</b> (a brown bar with a padlock). Opening one needs a weapon <b>in hand</b> that can: <b>Crowbar</b> (silent), <b>Fire axe</b> or <b>Chainsaw</b> (both noisy). Machetes, pistols, shotguns and the frying pan cannot.</li>
+        <li>Brick walls and the yard fence <b>block movement</b> for everyone, zombies too. You can only pass where zones are connected: through a door, or across open ground like the street.</li>
+        <li>Doors start <b>locked</b> (a wooden door with a padlock). Opening one needs a weapon <b>in hand</b> that can: <b>Crowbar</b> (silent), <b>Fire axe</b> or <b>Chainsaw</b> (both noisy). Machetes, pistols, shotguns and the frying pan cannot.</li>
         <li>Once open, a door stays open for everyone, <b>zombies included</b>. There is no way to close it again.</li>
         <li>The first time any door of a building is opened, <b>every room in that building spawns zombies</b>. You can see and hear the whole building fill up, so be ready.</li>
         <li>The Shop&rsquo;s front door starts open with the Shop empty so the group can always get inside.</li>

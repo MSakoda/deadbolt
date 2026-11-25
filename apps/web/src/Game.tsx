@@ -377,8 +377,6 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
       </div>
 
       <aside className="side">
-        {actor && turn && <SurvivorCard actor={actor} turn={turn} owner={ownerName(actor.owner)} zone={zname(actor.zone)} />}
-
         {actor && !canAct && state.status === 'active' && (
           <div className="card waiting">Waiting for <b>{ownerName(actor.owner)}</b> ({CHARACTER_BY_ID[actor.charId]?.name.split(" ")[0]}). The board updates by itself.</div>
         )}
@@ -433,11 +431,14 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
           </div>
         )}
 
+        {actor && turn && <SurvivorCard actor={actor} turn={turn} owner={ownerName(actor.owner)} zone={zname(actor.zone)} />}
+
         <div className="card roster">
           {state.turnOrder.map((id) => {
             const v = state.survivors[id]!;
             return (
-              <div key={id} className={'rrow' + (v.alive ? '' : ' dead') + (turn?.survivorId === id ? ' cur' : '')}>
+              <div key={id} className={'rrow' + (v.alive ? '' : ' dead') + (turn?.survivorId === id ? ' cur' : '')} title="Tap for status"
+                onClick={(e) => setHover({ t: { kind: 'survivor', id }, x: e.clientX, y: e.clientY, sticky: true })}>
                 <Portrait id={id} size={26} />
                 <span>{CHARACTER_BY_ID[id]?.name.split(' ')[0]}</span>
                 <span className="dim">L{v.level} · {ownerName(v.owner)}</span>

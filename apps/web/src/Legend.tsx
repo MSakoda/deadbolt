@@ -1,5 +1,5 @@
 import type { GameState } from '@deadbolt/engine';
-import { boardUrl } from './art';
+import { boardUrl, tileUrl } from './art';
 import { Portrait, ZombieFace } from './Portrait';
 
 const Svg = ({ children }: { children: React.ReactNode }) => (
@@ -7,6 +7,8 @@ const Svg = ({ children }: { children: React.ReactNode }) => (
 );
 
 const Pic = ({ name }: { name: string }) => <img className="lg-ico" src={boardUrl(name)} width="30" height="30" alt="" style={{ objectFit: 'contain' }} />;
+
+const Tile = ({ name }: { name: string }) => <img className="lg-ico" src={tileUrl(name)} width="30" height="30" alt="" style={{ objectFit: 'contain' }} />;
 
 const ROWS: { icon: React.ReactNode; name: string; text: string }[] = [
   { icon: <ZombieFace type="shambler" size={30} />, name: 'Shambler', text: 'Face in a green ring. Slow zombie: 1 action a round, dies to any hit.' },
@@ -18,8 +20,10 @@ const ROWS: { icon: React.ReactNode; name: string; text: string }[] = [
   { icon: <Pic name="keys" />, name: 'Keys', text: 'Under one of the mystery bundles. You need them, and the fuel, to start the truck.' },
   { icon: <Pic name="fuel" />, name: 'Fuel can', text: 'In the Workshop. Take it to the truck.' },
   { icon: <Pic name="truck" />, name: 'The truck', text: 'The way out, at the East end. Once you have the keys and the fuel, bring every living survivor here and Start the truck.' },
-  { icon: <Pic name="padlock" />, name: 'Locked door', text: 'Brown bar with a padlock. Needs a crowbar, axe or chainsaw in hand. The first opening of a building wakes every room inside.' },
-  { icon: <Svg><rect x="-14" y="-4" width="28" height="8" rx="3" fill="none" stroke="#66bb6a" strokeWidth="2" /></Svg>, name: 'Open door', text: 'Green outline. Anyone can walk through; so can zombies.' },
+  { icon: <Tile name="icon_wall" />, name: 'Wall', text: 'Brick wall (sometimes with a boarded window). You cannot move across it, and neither can zombies. Zones are only connected through doors or where there is no wall at all, like the street.' },
+  { icon: <Tile name="icon_fence" />, name: 'Fence', text: 'Chain-link fence around the Yard. Same as a wall: no way through.' },
+  { icon: <Tile name="icon_door_closed" />, name: 'Locked door', text: 'Wooden door with a padlock. Needs a crowbar, axe or chainsaw in hand. The first opening of a building wakes every room inside.' },
+  { icon: <Tile name="icon_door_open" />, name: 'Open door', text: 'Door swung open. Anyone can walk through; so can zombies. An open doorway never closes again.' },
   { icon: <Svg><circle r="11" fill="none" stroke="#ffb74d" strokeWidth="3" /></Svg>, name: 'Orange ring', text: 'A door you can open right now.' },
   { icon: <Svg><rect x="-13" y="-13" width="26" height="26" rx="5" fill="rgba(79,195,247,.2)" stroke="#4fc3f7" strokeWidth="3" /></Svg>, name: 'Blue zone', text: 'Click to move there (each zombie in your zone costs 1 extra action to leave).' },
   { icon: <Svg><rect x="-13" y="-13" width="26" height="26" rx="5" fill="rgba(255,82,82,.2)" stroke="#ff5252" strokeWidth="3" /></Svg>, name: 'Red zone', text: 'Click to attack it with the chosen weapon.' },
