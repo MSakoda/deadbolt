@@ -1,6 +1,6 @@
-import { Application, Assets, Circle, Container, Graphics, Rectangle, Sprite, Text, type Texture } from 'pixi.js';
+import { Application, Assets, Circle, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import { CHARACTER_BY_ID, getScenario } from '@deadbolt/engine';
-import { BOARD_ART, boardUrl, portraitUrl, zombieUrl, ZOMBIE_ART } from './art';
+import { BOARD_ART, boardUrl, FLOOR_ART, floorFor, portraitUrl, tileUrl, WALL_ART, zombieUrl, ZOMBIE_ART } from './art';
 import type { GameEvent, GameState, ZombieType, ZoneId } from '@deadbolt/engine';
 
 export const CELL_W = 190;
@@ -48,6 +48,8 @@ async function loadPortraits(): Promise<void> {
     ...Object.keys(SURVIVOR_COLORS).map((id) => [id, portraitUrl(id)] as const),
     ...ZOMBIE_ART.map((t) => ['z:' + t, zombieUrl(t)] as const),
     ...BOARD_ART.map((n) => ['b:' + n, boardUrl(n)] as const),
+    ...FLOOR_ART.map((n) => ['f:' + n, tileUrl(n)] as const),
+    ...WALL_ART.map((n) => ['w:' + n, tileUrl('wall_' + n)] as const),
   ];
   await Promise.all(jobs.map(async ([key, url]) => {
     if (portraits.has(key)) return;
@@ -58,6 +60,11 @@ async function loadPortraits(): Promise<void> {
 export class BoardView {
   private app = new Application();
   private world = new Container();
+  private floorLayer = new Container();
+  private wallLayer = new Container();
+  private floorSprites = new Map<ZoneId, Sprite>();
+  private doorArt = new Map<string, Sprite>();
+  private doorTexCache = new Map<string, Texture>();
   private bg = new Graphics();
   private doorLayer = new Container();
   private labelLayer = new Container();
@@ -101,7 +108,7 @@ export class BoardView {
     host.appendChild(this.app.canvas);
     this.bindGestures(this.app.canvas);
     this.app.stage.addChild(this.world);
-    this.world.addChild(this.bg, this.labelLayer, this.doorLayer, this.tokenLayer, this.fx);
+    this.world.addChild(this.floorLayer, this.bg, this.wallLayer, this.labelLayer, this.doorLayer, this.tokenLayer, this.fx);
 
     const sc = getScenario(state.scenarioId);
     this.scenarioId = sc.id;
@@ -118,7 +125,8 @@ export class BoardView {
       this.labelLayer.addChild(hit);
       this.zoneHit.set(z.id, hit);
       const t = label(z.name.toUpperCase(), 12, 0x9aa4b2, true);
-      t.position.set(zx(z.col) + 10, zy(z.row) + 8);
+      t.style.stroke = { color: 0x000000, width: 3 };
+      t.position.set(zx(z.col) + 10, zy(z.row) + 11);
       this.labelLayer.addChild(t);
       this.zoneText.set(z.id, t);
       const m = new Container();
@@ -146,6 +154,7 @@ export class BoardView {
       this.doorHit.set(e.id, hit);
     }
 
+    this.buildTiles(sc);
     this.fit();
     window.addEventListener('resize', this.fit);
     new ResizeObserver(() => this.fit()).observe(host);
@@ -297,8 +306,13 @@ export class BoardView {
     for (const z of sc.zones) {
       const x = zx(z.col), y = zy(z.row);
       const fill = z.kind === 'street' ? 0x2b303a : z.kind === 'yard' ? 0x24382c : 0x232a36;
-      g.roundRect(x, y, CELL_W, CELL_H, 10).fill(fill);
-      g.roundRect(x, y, CELL_W, CELL_H, 10).stroke({ width: 2, color: z.kind === 'room' ? 0x3b4556 : 0x343b48 });
+      if (this.floorSprites.has(z.id)) {
+        // The floor art sits underneath; a light shade keeps tokens and labels readable.
+        g.rect(x, y, CELL_W, CELL_H).fill({ color: 0x0b0d12, alpha: 0.3 });
+      } else {
+        g.roundRect(x, y, CELL_W, CELL_H, 10).fill(fill);
+        g.roundRect(x, y, CELL_W, CELL_H, 10).stroke({ width: 2, color: z.kind === 'room' ? 0x3b4556 : 0x343b48 });
+      }
       if (z.spawn) {
         const on = !z.spawn.afterBuilding || state.filled[z.spawn.afterBuilding];
         g.roundRect(x + 4, y + 4, CELL_W - 8, CELL_H - 8, 8).stroke({ width: 2, color: on ? 0xc0392b : 0x5b3a37, alpha: 0.8 });
@@ -330,12 +344,20 @@ export class BoardView {
       const open = !!state.doors[e.id];
       const w = horizontal ? 44 : 8;
       const h = horizontal ? 8 : 44;
-      if (open) {
-        g.roundRect(x - w / 2, y - h / 2, w, h, 3).stroke({ width: 2, color: 0x66bb6a });
+      const art = this.doorArt.get(e.id);
+      const tex = art && this.doorTexture(open);
+      if (art && tex) {
+        // The door piece carries its own padlock, so the separate lock sprite stays hidden.
+        if (art.texture !== tex) art.texture = tex;
+        this.drawLock(e.id, x, y, false);
       } else {
-        g.roundRect(x - w / 2, y - h / 2, w, h, 3).fill(0x9a6a33).stroke({ width: 1, color: 0x5d3d17 });
+        if (open) {
+          g.roundRect(x - w / 2, y - h / 2, w, h, 3).stroke({ width: 2, color: 0x66bb6a });
+        } else {
+          g.roundRect(x - w / 2, y - h / 2, w, h, 3).fill(0x9a6a33).stroke({ width: 1, color: 0x5d3d17 });
+        }
+        this.drawLock(e.id, x, y, !open);
       }
-      this.drawLock(e.id, x, y, !open);
       if (hints.doors[e.id]) {
         g.circle(x, y, 20).stroke({ width: 3, color: 0xffb74d });
       }
@@ -343,6 +365,94 @@ export class BoardView {
 
     this.syncTokens(state, instant);
     this.playEvents(events);
+  }
+
+  /** Floors under every zone, and a wall, fence, curb or door along every border that is not an open connection. */
+  private buildTiles(sc: ReturnType<typeof getScenario>): void {
+    const zoneAt = new Map(sc.zones.map((z) => [`${z.col},${z.row}`, z] as const));
+    const edgeBetween = (a: string, b: string) => sc.edges.find((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a));
+    const tex = (name: string) => portraits.get('w:' + name);
+
+    for (const z of sc.zones) {
+      const name = floorFor(z);
+      const t = name && portraits.get('f:' + name);
+      if (!t) continue;
+      // Square art covers the wider-than-tall cell: crop evenly top and bottom.
+      const fh = Math.round(t.height * (CELL_H / CELL_W));
+      const frame = new Rectangle(0, Math.round((t.height - fh) / 2), t.width, fh);
+      const sp = new Sprite(new Texture({ source: t.source, frame }));
+      sp.position.set(zx(z.col), zy(z.row));
+      sp.width = CELL_W;
+      sp.height = CELL_H;
+      this.floorLayer.addChild(sp);
+      this.floorSprites.set(z.id, sp);
+    }
+
+    const place = (name: string, cx: number, cy: number, horizontal: boolean): Sprite | null => {
+      const t = tex(name);
+      if (!t) return null;
+      const sp = new Sprite(t);
+      sp.anchor.set(0.5);
+      sp.position.set(cx, cy);
+      if (!horizontal) sp.rotation = Math.PI / 2;
+      fitWall(sp, horizontal ? CELL_W : CELL_H);
+      this.wallLayer.addChild(sp);
+      return sp;
+    };
+    const gaps = new Graphics();
+    this.floorLayer.addChild(gaps);
+
+    const hash = (z: { col: number; row: number }, salt: number) => (z.col * 7 + z.row * 3 + salt) % 4;
+    for (const z of sc.zones) {
+      // Each border is visited once: east and south neighbours, plus any side facing empty space.
+      for (const [dc, dr] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+        const n = zoneAt.get(`${z.col + dc},${z.row + dr}`);
+        const horizontal = dr !== 0;
+        const bx = dc === 1 ? zx(z.col + 1) - GAP / 2 : dc === -1 ? zx(z.col) - GAP / 2 : zx(z.col) + CELL_W / 2;
+        const by = dr === 1 ? zy(z.row + 1) - GAP / 2 : dr === -1 ? zy(z.row) - GAP / 2 : zy(z.row) + CELL_H / 2;
+        if (!n) {
+          const piece = z.kind === 'room' ? 'solid' : z.kind === 'yard' ? 'fence' : null;
+          if (piece) place(piece, bx, by, horizontal);
+          continue;
+        }
+        if (dc < 0 || dr < 0) continue; // the neighbour handles this border
+        const e = edgeBetween(z.id, n.id);
+        if (e?.door) {
+          place('solid', bx, by, horizontal);
+          const dt = this.doorTexture(false);
+          if (dt) {
+            const sp = new Sprite(dt);
+            sp.anchor.set(0.5);
+            sp.position.set(bx, by);
+            if (!horizontal) sp.rotation = Math.PI / 2;
+            sp.scale.set(DOOR_W / dt.width);
+            this.wallLayer.addChild(sp);
+            this.doorArt.set(e.id, sp);
+          }
+        } else if (e) {
+          // Open connection: let the floors run together across the gap.
+          if (dc) gaps.rect(zx(z.col) + CELL_W, zy(z.row), GAP, CELL_H).fill(0x24272d);
+          else gaps.rect(zx(z.col), zy(z.row) + CELL_H, CELL_W, GAP).fill(0x24272d);
+        } else if (z.kind === 'room' || n.kind === 'room') {
+          place(hash(z, dc) === 0 ? 'window' : 'solid', bx, by, horizontal);
+        } else {
+          place('curb', bx, by, horizontal);
+        }
+      }
+    }
+  }
+
+  /** Just the door (frame, leaf and padlock) cut out of a wall piece, so it keeps its proportions. */
+  private doorTexture(open: boolean): Texture | null {
+    const key = open ? 'door_open' : 'door_closed';
+    const hit = this.doorTexCache.get(key);
+    if (hit) return hit;
+    const t = portraits.get('w:' + key);
+    if (!t) return null;
+    const x = Math.round(t.width * 0.35), w = Math.round(t.width * 0.31);
+    const tex = new Texture({ source: t.source, frame: new Rectangle(x, 0, w, t.height) });
+    this.doorTexCache.set(key, tex);
+    return tex;
   }
 
   private truckLabel?: Text;
@@ -688,6 +798,14 @@ export class BoardView {
       return true;
     });
   }
+}
+
+const WALL_T = 24;
+const DOOR_W = 46;
+
+/** Stretch a wall strip to span a cell edge; it is drawn rotated for vertical borders. */
+function fitWall(sp: Sprite, length: number): void {
+  sp.scale.set(length / sp.texture.width, WALL_T / sp.texture.height);
 }
 
 function doorPos(ac: number, ar: number, bc: number, br: number): { x: number; y: number; horizontal: boolean } {
