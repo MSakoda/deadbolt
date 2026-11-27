@@ -11,3 +11,4 @@ export { SPAWN_CARDS, ZOMBIE_DEFS, LEVEL_XP } from './data/spawn';
 export { LONG_BLOCK, SCENARIOS } from './data/scenario';
 export { visible, distances, neighbors, graphFor, getScenario, edgeBetween } from './map';
 export { danger, noiseAt, woundCount, abilities, livingSurvivors, SPAWN_SCALE } from './core';
+export { summarizeGame, type GameSummary, type SurvivorSummary } from './summary';

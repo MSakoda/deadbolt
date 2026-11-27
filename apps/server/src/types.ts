@@ -53,6 +53,8 @@ export interface Game {
   createdAt: number;
   /** Unguessable id for the public replay link; set when the game ends. */
   replayToken?: string;
+  /** The game-over email has been sent (or skipped for a solo game), so it never goes out twice. */
+  endMailed?: boolean;
 }
 
 export interface LogEntry {

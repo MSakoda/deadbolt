@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CHARACTER_BY_ID } from '@deadbolt/engine';
-import type { Action, GameEvent, GameState } from '@deadbolt/engine';
+import type { Action, GameEvent, GameState, GameSummary } from '@deadbolt/engine';
 import { api, ApiError, type GameView, type Me } from './api';
 import { Game } from './Game';
 import { describeAll, type LogLine } from './log';
@@ -17,6 +17,7 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
   const [remote, setRemote] = useState<Online['remote']>();
   const seq = useRef(0);
   const [replayToken, setReplayToken] = useState<string | undefined>();
+  const [summary, setSummary] = useState<GameSummary | null>(null);
   const [initial, setInitial] = useState<{ state: GameState; log: LogLine[] } | null>(null);
   const [chat, setChat] = useState<{ messages: ChatMsg[]; unread: number }>({ messages: [], unread: 0 });
   const chatAt = useRef(0);
@@ -42,6 +43,7 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
   const apply = (v: GameView, first: boolean) => {
     setView(v);
     if (v.game.replay) setReplayToken(v.game.replay);
+    if (v.game.summary) setSummary(v.game.summary);
     const events = v.recap.flatMap((r) => r.events);
     if (first && v.state) {
       // Opening a game: the recap becomes the log; the board snaps to the current state.
@@ -106,6 +108,7 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
     names,
     remote,
     replayToken,
+    summary,
     chat: {
       messages: chat.messages,
       unread: chat.unread,
@@ -123,9 +126,10 @@ export function OnlineGame({ id, me, onExit }: { id: string; me: Me['user']; onE
     },
     async send(actions: Action[]) {
       try {
-        const r = await api<{ state: GameState; events: GameEvent[]; seq: number; replay?: string }>('POST', `/games/${id}/actions`, { actions });
+        const r = await api<{ state: GameState; events: GameEvent[]; seq: number; replay?: string; summary?: GameSummary | null }>('POST', `/games/${id}/actions`, { actions });
         seq.current = r.seq;
         if (r.replay) setReplayToken(r.replay);
+        if (r.summary) setSummary(r.summary);
         void api('POST', `/games/${id}/seen`, { seq: r.seq }).catch(() => undefined);
         return { state: r.state, events: r.events };
       } catch (e) {

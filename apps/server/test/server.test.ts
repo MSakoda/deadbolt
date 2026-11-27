@@ -492,6 +492,43 @@ describe('replay', () => {
   });
 });
 
+describe('game over', () => {
+  it('gives every player a summary and one email, once', async () => {
+    const { chooseAction } = await import('@deadbolt/engine/src/bot');
+    const g = await startedGame();
+    let game = await service.getGame(g.id);
+    expect((await call(g.a, 'GET', `/api/games/${g.id}`)).json.game.summary).toBeNull();
+    const before = mailer.outbox.length;
+    let last: any;
+    for (let i = 0; i < 6000 && game.status === 'active'; i++) {
+      last = await service.act(g.id, game.activeOwner!, [chooseAction(game.state!)]);
+      game = await service.getGame(g.id);
+    }
+    expect(game.status).not.toBe('active');
+    // The call that ended the game already carries the numbers.
+    expect(last.summary.outcome).toBe(game.status);
+
+    const v = (await call(g.b, 'GET', `/api/games/${g.id}`)).json;
+    const sum = v.game.summary;
+    expect(sum.outcome).toBe(game.status);
+    expect(sum.survivors.length).toBe(game.state!.turnOrder.length);
+    // Credit per survivor never exceeds the team total.
+    expect(sum.survivors.reduce((n: number, x: any) => n + x.killTotal, 0)).toBeLessThanOrEqual(sum.killTotal);
+    expect(sum.killTotal).toBeGreaterThan(0);
+
+    const over = mailer.outbox.slice(before).filter((m) => /You made it out|The block is lost/.test(m.subject));
+    expect(over.map((m) => m.to).sort()).toEqual(['a@x.com', 'b@x.com']);
+    expect(over[0]!.text).toMatch(/level \d/);
+    expect(over[0]!.text).toMatch(/zombies? killed/);
+    expect(over[0]!.text).toContain('/api/auth/verify');
+
+    // Looking again, or more changes, never sends it a second time.
+    await call(g.a, 'GET', `/api/games/${g.id}`);
+    await service.runJobs();
+    expect(mailer.outbox.slice(before).filter((m) => /You made it out|The block is lost/.test(m.subject))).toHaveLength(2);
+  });
+});
+
 describe('serving the web app', () => {
   it('serves the built site with an SPA fallback for client routes and keeps /api as JSON', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'deadbolt-web-'));

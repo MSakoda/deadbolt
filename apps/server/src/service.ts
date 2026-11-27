@@ -6,7 +6,9 @@ import {
   createGame,
   legalActions,
   RULES_VERSION,
+  summarizeGame,
   type Action,
+  type GameSummary,
   type GameEvent,
   type GameState,
 } from '@deadbolt/engine';
@@ -435,7 +437,10 @@ export class Service {
       g.replayToken ??= randomBytes(16).toString('base64url');
       g.activeOwner = null;
       g.activeSince = null;
+      const notify = !g.endMailed;
+      g.endMailed = true;
       await this.saveGame(g);
+      if (notify) await this.mailGameOver(g);
       return;
     }
     const owner = activeOwner(st);
@@ -448,6 +453,51 @@ export class Service {
       if (owner && !solo) await this.queueTurnJobs(g, owner);
     }
     await this.saveGame(g);
+  }
+
+  /** Totals for a finished game, read from the full log; null while it is still running. */
+  private async summaryFor(g: Game): Promise<GameSummary | null> {
+    if (!g.state || g.state.status === 'active') return null;
+    const events = (await this.log(g.id)).flatMap((e) => e.events);
+    return summarizeGame(g.state, events);
+  }
+
+  /** Tells every player the game is over, with the numbers. A solo player was there, so nothing is sent. */
+  private async mailGameOver(g: Game): Promise<void> {
+    const people = [...new Set(g.members.filter((m) => m.status === 'joined').map((m) => m.userId))];
+    if (people.length < 2) return;
+    const sum = await this.summaryFor(g);
+    if (!sum) return;
+    const users = new Map<string, User>();
+    for (const id of people) users.set(id, await this.getUser(id));
+    const won = sum.outcome === 'won';
+    const first = (id: string) => (CHARACTERS.find((c) => c.id === id)?.name ?? id).split(' ')[0];
+    const items = sum.survivors.map((v) => {
+      const bits = [`level ${v.level}`, `${v.killTotal} zombie${v.killTotal === 1 ? '' : 's'} killed`];
+      if (v.objectives.length) bits.push(`took ${v.objectives.join(', ')}`);
+      if (!v.alive) bits.push('fell');
+      return `${first(v.charId)} (${users.get(v.owner)?.name ?? 'player'}): ${bits.join(', ')}`;
+    });
+    const title = won ? 'You made it out!' : 'The block is lost';
+    for (const id of people) {
+      const user = users.get(id)!;
+      try {
+        const link = await this.loginLink(user.email, `/games/${g.id}`, MAIL_LINK_TTL, true);
+        await this.mail(user.email, `[${g.name}] ${title}`, {
+          title,
+          paragraphs: [
+            won
+              ? `The survivors in "${g.name}" escaped in round ${sum.rounds}. ${sum.killTotal} zombies were put down along the way.`
+              : `The survivors in "${g.name}" fell in round ${sum.rounds} after putting down ${sum.killTotal} zombies.`,
+          ],
+          items,
+          button: { label: 'See the game summary', url: link },
+          preheader: `"${g.name}" is over`,
+        });
+      } catch (e) {
+        console.error(`game-over email for game ${g.id} failed:`, (e as Error).message);
+      }
+    }
   }
 
   private async queueTurnJobs(g: Game, userId: string): Promise<void> {
@@ -597,6 +647,7 @@ export class Service {
         seq: g.seq,
         settings: g.settings,
         replay: g.replayToken,
+        summary: await this.summaryFor(g),
         members: g.members.map((m) => ({
           userId: m.userId,
           name: users.get(m.userId)?.name,
@@ -712,6 +763,7 @@ export class Service {
         events: done.flatMap((d) => d.events),
         seq: g.seq,
         replay: g.replayToken,
+        summary: await this.summaryFor(g),
         state: redact(st, userId),
         legal: this.legalFor(g, userId),
       };

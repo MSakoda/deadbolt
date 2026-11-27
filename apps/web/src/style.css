@@ -282,3 +282,19 @@ button.danger:hover { background: #3a1d1c; }
 @media (prefers-reduced-motion: reduce) { .hudbtns button.unread { animation: none; } }
 
 .warn { color: var(--warn); }
+
+/* End-of-game summary */
+.modal.summary { max-width: 620px; }
+.sum-won { color: #81c784; } .sum-lost { color: var(--bad); }
+.sum-team { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 12px; background: #12151b; border: 1px solid var(--line); border-radius: 10px; margin: 10px 0 12px; }
+.sum-big { display: flex; flex-direction: column; line-height: 1.15; } .sum-big b { font-size: 24px; } .sum-big span { font-size: 12px; color: var(--dim); }
+.sum-kind { display: flex; align-items: center; gap: 6px; font-size: 13px; } .sum-kind span { color: var(--dim); }
+.sum-list { display: flex; flex-direction: column; gap: 8px; }
+.sum-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; background: #1a1f2a; border: 1px solid var(--line); border-radius: 10px; }
+.sum-row.down { opacity: .8; }
+.sum-main { min-width: 0; flex: 1; }
+.sum-name .tag { margin-left: 6px; }
+.sum-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 13px; margin-top: 3px; }
+.sum-objs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.sum-obj { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 8px 2px 4px; background: #12151b; border: 1px solid var(--line); border-radius: 999px; }
+.sum-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }

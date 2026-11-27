@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { Action, GameEvent, GameState } from '@deadbolt/engine';
+import type { Action, GameEvent, GameState, GameSummary } from '@deadbolt/engine';
 import type { LogLine } from './log';
 
 /** What the board needs to play a game that lives on the server. */
@@ -12,6 +12,8 @@ export interface Online {
   remote?: { state: GameState; events: GameEvent[]; lines: LogLine[] };
   /** Link token for the replay once the game has ended. */
   replayToken?: string;
+  /** Totals for a finished game, from the server. */
+  summary?: GameSummary | null;
   topExtra?: ReactNode;
   chat?: {
     messages: ChatMsg[];

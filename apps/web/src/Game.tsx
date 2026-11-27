@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CHARACTER_BY_ID, DANGER_NAMES, ITEMS, applyAction, danger, edgeBetween,
-  legalActions, woundCount, getScenario,
+  legalActions, woundCount, getScenario, summarizeGame,
 } from '@deadbolt/engine';
 import type { Action, GameEvent, GameState, ZombieType, ZoneId } from '@deadbolt/engine';
 import { BoardView, type Hints, type HoverTarget } from './Board';
@@ -12,6 +12,7 @@ import { describeAll, type LogLine } from './log';
 import { save, type Saved } from './persist';
 import { Goal, Legend } from './Legend';
 import { ChatModal } from './Chat';
+import { SummaryModal } from './Summary';
 import { Rulebook } from './Rulebook';
 import { SurvivorCard } from './SurvivorCard';
 import { Portrait } from './Portrait';
@@ -51,6 +52,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   const [inv, setInv] = useState(false);
   const [rules, setRules] = useState(false);
   /** Which popup is open from the buttons on the board. */
+  const [summaryOpen, setSummaryOpen] = useState(true);
   const [panel, setPanel] = useState<'goal' | 'log' | 'chat' | null>(null);
   const [hover, setHover] = useState<{ t: HoverTarget; x: number; y: number; sticky?: boolean } | null>(null);
   const [prefer, setPrefer] = useState<ZombieType | ''>('');
@@ -63,6 +65,11 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
   const actor = state.turn ? state.survivors[state.turn.survivorId]! : null;
   const canAct = !online || (!!actor && actor.owner === online.myId);
   const ownerName = (o: string) => (online ? online.names[o] : g.players[Number(o)]) ?? o;
+  // Totals for the end screen: the server's for online games, otherwise read from the recorded steps.
+  const summary = useMemo(
+    () => (state.status === 'active' ? null : online?.summary ?? summarizeGame(state, g.replay?.steps.flatMap((st) => st.events) ?? [])),
+    [state, online?.summary, g.replay],
+  );
   const legal = useMemo<Action[]>(() => (actor && canAct && !busy && !playing && state.status === 'active' ? legalActions(state, actor.owner) : []), [state, actor, canAct, busy, playing]);
 
   const attacksFor = (slot: 0 | 1 | 'both') =>
@@ -89,7 +96,8 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
     let r: ReturnType<typeof applyAction>;
     try { r = applyAction(state, a); } catch { r = { ok: false, error: 'needs the server' }; }
     if (online) {
-      const lock = !r.ok || a.type === 'end_turn' || r.events.some((e) => LOCK.has(e.type));
+      // Anything that ends the game must reach the server now: a win previewed only here would be lost on leaving.
+      const lock = !r.ok || a.type === 'end_turn' || r.state.status !== 'active' || r.events.some((e) => LOCK.has(e.type));
       if (r.ok && !lock) {
         queue.current.push(a);
         setUndo((u) => [...u, { state, logLen: g.log.length }]);
@@ -313,6 +321,7 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
           <span className={state.team.fuel ? 'ok' : 'dim'}>Fuel {state.team.fuel ? '✓' : '—'}</span>
         </div>
         <div className="hudbtns">
+          {state.status !== 'active' && <button className="primary" onClick={() => setSummaryOpen(true)}>Summary</button>}
           <button onClick={() => setPanel('goal')}>Goal</button>
           <button onClick={() => setPanel('log')}>Log</button>
           {online?.chat && <button className={online.chat.unread > 0 ? 'unread' : undefined} onClick={() => setPanel('chat')}>Chat{online.chat.unread > 0 && <span className="badge">{online.chat.unread > 9 ? '9+' : online.chat.unread}</span>}</button>}
@@ -335,17 +344,15 @@ export function Game({ initial, onExit, online }: { initial: Saved; onExit(): vo
         <DiceOverlay queue={rolls} zoneName={zoneNameFor(state.scenarioId)} onDone={() => setRolls((q) => q.slice(1))} />
         {mode && <div className="banner">Pick a red zone to attack. <button onClick={() => setMode(null)}>Cancel</button></div>}
         {toast && <div className="toast" onClick={() => setToast('')}>{toast}</div>}
-        {state.status !== 'active' && (
-          <div className="modal-bg">
-            <div className="modal">
-              <h2>{state.status === 'won' ? 'You made it out!' : 'The block is lost.'}</h2>
-              <p>{state.status === 'won' ? `Survivors escaped in round ${state.round}.` : `Fallen in round ${state.round}.`}</p>
-              {(online ? online.replayToken : g.replay) && (
-                <p><button className="primary" onClick={() => setShowReplay(true)}>Watch replay</button></p>
-              )}
-              <button className={online?.replayToken || g.replay ? '' : 'primary'} onClick={onExit}>{online ? 'Back to my games' : 'Back to lobby'}</button>
-            </div>
-          </div>
+        {summary && summaryOpen && !busy && (
+          <SummaryModal
+            summary={summary}
+            names={ownerName}
+            onClose={() => setSummaryOpen(false)}
+            onReplay={(online ? online.replayToken : g.replay) ? () => setShowReplay(true) : undefined}
+            onExit={onExit}
+            exitLabel={online ? 'Back to my games' : 'Back to lobby'}
+          />
         )}
         {hover && !panel && (
           <div className="tip" style={{ left: Math.max(8, Math.min(hover.x + 16, window.innerWidth - 336)), top: Math.max(8, Math.min(hover.y + 16, window.innerHeight - 340)) }}>

@@ -65,6 +65,7 @@ export interface GameView {
     activeSince: number | null;
     seq: number;
     replay?: string;
+    summary?: import('@deadbolt/engine').GameSummary | null;
     settings: { nudgeHours: number[] };
     members: MemberView[];
   };
